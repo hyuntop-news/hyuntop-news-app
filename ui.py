@@ -332,6 +332,7 @@ st.markdown(
         color: var(--text);
         padding: 10px 16px;
     }
+
     </style>
     """,
     unsafe_allow_html=True,
