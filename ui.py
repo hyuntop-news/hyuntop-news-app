@@ -99,6 +99,11 @@ def run_news_now(settings: dict) -> None:
         result = run_mailer(settings=settings)
         if result.get("sent", 0):
             st.success(f"{result['recipient']} 주소로 뉴스 {result['sent']}개를 보냈습니다.")
+            blog_draft = result.get("blog_draft")
+            if blog_draft:
+                st.success(f"'{blog_draft['news_title']}' 뉴스로 블로그 초안도 만들었습니다.")
+                with st.expander("방금 만든 블로그 초안 보기", expanded=True):
+                    st.markdown(blog_draft["content"])
         else:
             st.warning(result.get("message", "보낼 뉴스가 없습니다."))
     except Exception as exc:
