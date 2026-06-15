@@ -1,0 +1,7 @@
+.env
+__pycache__/
+.streamlit/secrets.toml
+settings.json
+logs/
+blog_drafts/
+*.pyc

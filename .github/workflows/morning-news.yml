@@ -1,0 +1,29 @@
+name: Send morning news
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 07:00 Asia/Seoul is 22:00 UTC on the previous day.
+    - cron: "0 22 * * *"
+
+jobs:
+  send-news:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Send news email
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          NEWS_QUERY: "경제"
+          NEWS_LIMIT: "5"
+          REQUEST_TIMEOUT_SECONDS: "15"
+        run: python morning_news_mailer.py

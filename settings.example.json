@@ -1,0 +1,14 @@
+{
+  "news_query": "경제",
+  "news_limit": 5,
+  "recipient_email": "",
+  "notification_channel": "email",
+  "schedule_time": "07:00",
+  "blog_enabled": false,
+  "blog_pick_index": 1,
+  "blog_draft_dir": "blog_drafts",
+  "retry_count": 3,
+  "retry_delay_seconds": 3,
+  "request_timeout_seconds": 15,
+  "error_email_enabled": true
+}
