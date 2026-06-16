@@ -35,6 +35,8 @@ GitHub에서 새 저장소를 만든 뒤 이 폴더의 파일들을 업로드합
 GMAIL_ADDRESS = "보내는 Gmail 주소"
 GMAIL_APP_PASSWORD = "Gmail 앱 비밀번호"
 RECIPIENT_EMAIL = "받는 이메일 주소"
+GEMINI_API_KEY = "Gemini API 키"
+GEMINI_MODEL = "gemini-3.5-flash"
 ```
 
 6. Deploy 클릭

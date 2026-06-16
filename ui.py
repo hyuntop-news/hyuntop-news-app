@@ -24,6 +24,7 @@ DEFAULT_SETTINGS = {
     "blog_enabled": True,
     "blog_pick_index": 1,
     "blog_draft_dir": "blog_drafts",
+    "content_candidate_limit": 10,
     "retry_count": 3,
     "retry_delay_seconds": 3,
     "request_timeout_seconds": 10,
@@ -35,7 +36,7 @@ def load_settings() -> dict:
     if not SETTINGS_PATH.exists():
         return DEFAULT_SETTINGS.copy()
 
-    with SETTINGS_PATH.open("r", encoding="utf-8") as file:
+    with SETTINGS_PATH.open("r", encoding="utf-8-sig") as file:
         loaded = json.load(file)
 
     settings = DEFAULT_SETTINGS.copy()
@@ -157,7 +158,12 @@ def run_news_now(settings: dict) -> None:
             st.success(f"{result['recipient']} 주소로 뉴스 {result['sent']}개를 보냈습니다.")
             content_package = result.get("content_package")
             if content_package:
-                st.success("블로그·쓰레드·유튜브·Vrew 콘텐츠 패키지도 만들었습니다.")
+                selected_text = f"{result.get('selected_index')}번째 뉴스"
+                if result.get("auto_selected"):
+                    selected_text += "를 본문 기준으로 자동 선택"
+                st.success(f"{selected_text}로 블로그·쓰레드·유튜브·Vrew 콘텐츠 패키지도 만들었습니다.")
+            elif result.get("content_message"):
+                st.warning(result["content_message"])
         else:
             st.warning(result.get("message", "보낼 뉴스가 없습니다."))
     except Exception as exc:
@@ -450,7 +456,8 @@ if menu == "대시보드":
         card("수신 채널", recipient, "이메일 발송", "green")
     with col4:
         blog_status = "ON" if settings["blog_enabled"] else "OFF"
-        card("콘텐츠 패키지", blog_status, f"{settings['blog_pick_index']}번째 뉴스로 4종 생성", "amber")
+        pick_label = "본문 많은 뉴스 자동 선택" if int(settings.get("blog_pick_index", 0)) == 0 else f"{settings['blog_pick_index']}번째 뉴스로 4종 생성"
+        card("콘텐츠 패키지", blog_status, pick_label, "amber")
 
     st.markdown('<div class="section-title">Quick Actions</div>', unsafe_allow_html=True)
     action1, action2, action3 = st.columns([1, 1, 2])
@@ -499,15 +506,27 @@ elif menu == "설정":
 
         with tab_blog:
             blog_enabled = st.toggle("콘텐츠 패키지 생성", value=bool(settings["blog_enabled"]))
+            auto_pick = st.toggle(
+                "본문이 충분한 뉴스 자동 선택",
+                value=int(settings.get("blog_pick_index", 0)) == 0,
+                disabled=not blog_enabled,
+            )
             blog_pick_index = st.number_input(
                 "고를 뉴스 번호",
                 min_value=1,
                 max_value=20,
-                value=int(settings["blog_pick_index"]),
-                disabled=not blog_enabled,
+                value=max(int(settings.get("blog_pick_index", 1)), 1),
+                disabled=(not blog_enabled) or auto_pick,
             )
             blog_draft_dir = st.text_input("콘텐츠 저장 폴더", value=settings["blog_draft_dir"], disabled=not blog_enabled)
-            st.caption("선택 뉴스로 3,000자 이내 후킹형 블로그 글, 200자 이내 쓰레드, 유튜브 슬라이드 대본, Vrew 대본을 만듭니다.")
+            content_candidate_limit = st.number_input(
+                "자동 선택 후보 뉴스 수",
+                min_value=5,
+                max_value=30,
+                value=int(settings.get("content_candidate_limit", 10)),
+                disabled=(not blog_enabled) or (not auto_pick),
+            )
+            st.caption("자동 선택을 켜면 뉴스 목록 중 본문/요약이 가장 많이 확보된 기사로 4종 콘텐츠를 만듭니다.")
 
         with tab_guard:
             retry_count = st.number_input("실패 시 재시도 횟수", min_value=0, max_value=10, value=int(settings["retry_count"]))
@@ -525,8 +544,9 @@ elif menu == "설정":
             "notification_channel": notification_channel,
             "schedule_time": schedule_time.strip(),
             "blog_enabled": bool(blog_enabled),
-            "blog_pick_index": int(blog_pick_index),
+            "blog_pick_index": 0 if auto_pick else int(blog_pick_index),
             "blog_draft_dir": blog_draft_dir.strip() or "blog_drafts",
+            "content_candidate_limit": int(content_candidate_limit),
             "retry_count": int(retry_count),
             "retry_delay_seconds": int(retry_delay_seconds),
             "request_timeout_seconds": int(request_timeout_seconds),

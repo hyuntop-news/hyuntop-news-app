@@ -2,6 +2,7 @@ import argparse
 import html
 import json
 import os
+import re
 import smtplib
 import ssl
 import urllib.parse
@@ -10,6 +11,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 from email.message import EmailMessage
+from html.parser import HTMLParser
 from pathlib import Path
 
 
@@ -23,6 +25,8 @@ class NewsItem:
     title: str
     link: str
     source: str
+    summary: str = ""
+    article_text: str = ""
 
 
 @dataclass
@@ -50,7 +54,7 @@ def load_env_file(path: Path = BASE_DIR / ".env") -> None:
 def load_settings(path: Path = SETTINGS_PATH) -> dict:
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def get_secret(name: str) -> str:
@@ -64,6 +68,221 @@ def get_secret(name: str) -> str:
         return str(st.secrets.get(name, "")).strip()
     except Exception:
         return ""
+
+
+class ArticleTextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.skip_depth = 0
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"script", "style", "noscript", "svg", "header", "footer", "nav"}:
+            self.skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style", "noscript", "svg", "header", "footer", "nav"} and self.skip_depth:
+            self.skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        text = " ".join(data.split())
+        if self.skip_depth or len(text) < 35:
+            return
+        self.parts.append(text)
+
+
+class LinkParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.links: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a":
+            return
+        for name, value in attrs:
+            if name == "href" and value:
+                self.links.append(html.unescape(value))
+
+
+def strip_html(value: str) -> str:
+    parser = ArticleTextParser()
+    parser.feed(value or "")
+    return " ".join(parser.parts).strip()
+
+
+def extract_links(value: str) -> list[str]:
+    parser = LinkParser()
+    parser.feed(value or "")
+    return parser.links
+
+
+def is_google_news_url(url: str) -> bool:
+    host = urllib.parse.urlparse(url).netloc.lower()
+    return "news.google." in host or host == "google.com" or host.endswith(".google.com")
+
+
+def is_useful_article_text(text: str, title: str) -> bool:
+    normalized_text = " ".join((text or "").split())
+    normalized_title = " ".join((title or "").split())
+    if len(normalized_text) < 180:
+        return False
+    if normalized_text == normalized_title:
+        return False
+    if normalized_title and normalized_text.startswith(normalized_title) and len(normalized_text) < len(normalized_title) + 80:
+        return False
+    return True
+
+
+def article_score(item: NewsItem) -> int:
+    score = 0
+    if is_useful_article_text(item.article_text, item.title):
+        score += min(len(item.article_text), 3000)
+    if is_useful_article_text(item.summary, item.title):
+        score += min(len(item.summary), 800)
+    if item.article_text:
+        score += 200
+    return score
+
+
+def select_content_item(items: list[NewsItem], preferred_index: int = 0) -> tuple[NewsItem, int, bool]:
+    if not items:
+        raise ValueError("선택할 뉴스가 없습니다.")
+
+    if preferred_index > 0:
+        index = min(max(preferred_index, 1), len(items))
+        return items[index - 1], index, False
+
+    scored_items = [(article_score(item), index, item) for index, item in enumerate(items, start=1)]
+    scored_items.sort(key=lambda value: value[0], reverse=True)
+    best_score, best_index, best_item = scored_items[0]
+    if best_score <= 0:
+        return items[0], 1, True
+    return best_item, best_index, True
+
+
+def extract_json_object(value: str) -> dict:
+    text = (value or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
+        text = re.sub(r"```$", "", text).strip()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if not match:
+            raise
+        return json.loads(match.group(0))
+
+
+def create_gemini_content(item: NewsItem, article_context: str) -> dict | None:
+    api_key = get_secret("GEMINI_API_KEY")
+    if not api_key:
+        return None
+
+    try:
+        from google import genai
+    except Exception:
+        return None
+
+    model = get_secret("GEMINI_MODEL") or "gemini-3.5-flash"
+    prompt = f"""
+너는 한국어 뉴스 콘텐츠 에디터다.
+아래 기사 정보를 바탕으로 확인된 내용만 사용해 콘텐츠를 작성하라.
+본문이 부족해도 콘텐츠 생성을 중단하지 마라.
+확인되지 않은 숫자, 발언, 일정, 기업명, 정책명은 지어내지 마라.
+대신 제목과 요약에서 확인되는 주제, 일반 배경 설명, 독자가 확인할 체크포인트, 의미 해석을 풍성하게 써라.
+정보가 부족하다는 말은 짧게 한 번만 쓰고, 사과하거나 "작성할 수 없다"는 식으로 말하지 마라.
+
+출력은 반드시 JSON 객체 하나만 반환하라.
+키는 blog_post, thread_post, slide_script, vrew_script 네 개만 사용하라.
+
+조건:
+- blog_post: 3000자 이내, 후킹 모드, 블로그 게시용 문체, 제목 포함
+- thread_post: 200자 이내, SNS 쓰레드 첫 글로 사용 가능
+- slide_script: 유튜브 제작용 슬라이드 6장 구성, 각 장마다 화면 문구와 내레이션 포함
+- vrew_script: Vrew에 붙여넣기 좋은 장면별 내레이션 대본
+
+뉴스 제목:
+{item.title}
+
+출처:
+{item.source}
+
+원문 링크:
+{item.link}
+
+수집된 기사 내용:
+{article_context}
+"""
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(model=model, contents=prompt)
+        data = extract_json_object(response.text)
+    except Exception:
+        return None
+
+    blog_post = str(data.get("blog_post", "")).strip()[:3000]
+    thread_post = str(data.get("thread_post", "")).strip()[:200]
+    slide_script = str(data.get("slide_script", "")).strip()
+    vrew_script = str(data.get("vrew_script", "")).strip()
+
+    if not all([blog_post, thread_post, slide_script, vrew_script]):
+        return None
+
+    return {
+        "blog_post": blog_post,
+        "thread_post": thread_post,
+        "slide_script": slide_script,
+        "vrew_script": vrew_script,
+    }
+
+
+def fetch_article_details(url: str, timeout: int) -> tuple[str, str]:
+    if not url:
+        return "", ""
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 MorningNewsMailer/2.0",
+            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.7",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            final_url = response.geturl()
+            content_type = response.headers.get("content-type", "")
+            if "text/html" not in content_type:
+                return "", final_url
+            raw_html = response.read(600_000).decode("utf-8", errors="replace")
+    except Exception:
+        return "", url
+
+    text = extract_article_with_trafilatura(raw_html, final_url) or strip_html(raw_html)
+    return text[:2500], final_url
+
+
+def extract_article_with_trafilatura(raw_html: str, url: str) -> str:
+    try:
+        import trafilatura
+    except Exception:
+        return ""
+
+    try:
+        extracted = trafilatura.extract(
+            raw_html,
+            url=url,
+            include_comments=False,
+            include_tables=False,
+            favor_precision=True,
+        )
+    except Exception:
+        return ""
+
+    return " ".join((extracted or "").split())
 
 
 def fetch_news(query: str, limit: int, timeout: int = 15) -> list[NewsItem]:
@@ -83,11 +302,21 @@ def fetch_news(query: str, limit: int, timeout: int = 15) -> list[NewsItem]:
 
     items = []
     for item in channel.findall("item")[:limit]:
+        link = item.findtext("link", default="").strip()
+        description = item.findtext("description", default="")
+        summary = strip_html(description)
+        candidate_links = extract_links(description)
+        direct_link = next((candidate for candidate in candidate_links if not is_google_news_url(candidate)), "")
+        article_text, final_url = fetch_article_details(direct_link or link, timeout)
+        if is_google_news_url(final_url):
+            final_url = direct_link or link
         items.append(
             NewsItem(
                 title=item.findtext("title", default="제목 없음").strip(),
-                link=item.findtext("link", default="").strip(),
+                link=final_url or link,
                 source=item.findtext("source", default="Google News").strip(),
+                summary=summary,
+                article_text=article_text,
             )
         )
     return items
@@ -95,11 +324,35 @@ def fetch_news(query: str, limit: int, timeout: int = 15) -> list[NewsItem]:
 
 def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackage:
     today = datetime.now().strftime("%Y-%m-%d")
-    blog_post = f"""# 지금 놓치면 뒤늦게 알게 됩니다: {item.title}
+    has_article_text = is_useful_article_text(item.article_text, item.title)
+    has_summary = is_useful_article_text(item.summary, item.title)
+    article_context = ""
+    if has_article_text:
+        article_context = item.article_text
+    elif has_summary:
+        article_context = item.summary
+    else:
+        article_context = (
+            "자동 수집으로는 기사 본문을 충분히 가져오지 못했습니다. "
+            "원문 링크를 열어 숫자, 발언, 일정, 배경 정보를 확인한 뒤 보강해야 합니다."
+        )
+
+    gemini_content = create_gemini_content(item, article_context)
+    if gemini_content:
+        blog_post = gemini_content["blog_post"]
+        thread_post = gemini_content["thread_post"]
+        slide_script = gemini_content["slide_script"]
+        vrew_script = gemini_content["vrew_script"]
+    else:
+        blog_post = f"""# 지금 놓치면 뒤늦게 알게 됩니다: {item.title}
 
 "{item.title}"이라는 소식, 그냥 지나쳐도 될까요?
 
 겉으로는 하나의 뉴스처럼 보이지만, 이 이슈가 앞으로의 흐름을 보여주는 신호일 수 있습니다. 지금 알아야 할 핵심만 빠르게 정리해 보겠습니다.
+
+## 기사에서 확인한 내용
+
+{article_context}
 
 ## 왜 지금 주목해야 할까?
 
@@ -127,15 +380,15 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
 원문: {item.link}
 확인일: {today}
 """
-    blog_post = blog_post[:3000]
+        blog_post = blog_post[:3000]
 
-    thread_post = (
-        f"놓치면 뒤늦게 알게 될 뉴스: {item.title} "
-        "핵심은 사건 자체보다 다음 변화입니다. 배경·영향 범위·후속 움직임을 확인하세요. "
-        f"원문: {item.link}"
-    )[:200]
+        thread_post = (
+            f"놓치면 뒤늦게 알게 될 뉴스: {item.title} "
+            f"핵심은 {article_context[:70]}... 배경·영향·후속 움직임을 확인하세요. "
+            f"원문: {item.link}"
+        )[:200]
 
-    slide_script = f"""# 유튜브 슬라이드 대본
+        slide_script = f"""# 유튜브 슬라이드 대본
 
 ## 슬라이드 1. 오프닝
 - 화면 문구: 지금 놓치면 늦습니다
@@ -143,7 +396,7 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
 
 ## 슬라이드 2. 무슨 일이 있었나
 - 화면 문구: 핵심 사건 한눈에 보기
-- 내레이션: 먼저 원문 기사를 기준으로 사건의 배경과 현재 상황을 정리해 보겠습니다.
+- 내레이션: 기사에서 확인한 주요 내용은 다음과 같습니다. {article_context[:180]}
 
 ## 슬라이드 3. 왜 중요한가
 - 화면 문구: 우리에게 미칠 영향
@@ -165,13 +418,14 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
 원문: {item.link}
 """
 
-    vrew_script = f"""[오프닝]
+        vrew_script = f"""[오프닝]
 지금 놓치면 뒤늦게 알게 될 수 있습니다.
 오늘의 뉴스는, {item.title}입니다.
 
 [장면 1]
 먼저 무슨 일이 있었는지 살펴보겠습니다.
-원문 기사를 기준으로 사건의 배경과 현재 상황을 확인해야 합니다.
+기사에서 확인한 주요 내용은 다음과 같습니다.
+{article_context[:220]}
 
 [장면 2]
 그렇다면 왜 이 뉴스가 중요할까요?
@@ -300,17 +554,26 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
     query = str(settings.get("news_query", os.getenv("NEWS_QUERY", ""))).strip()
     limit = int(settings.get("news_limit", os.getenv("NEWS_LIMIT", "5")))
     timeout = int(settings.get("request_timeout_seconds", os.getenv("REQUEST_TIMEOUT_SECONDS", "15")))
-    items = fetch_news(query, limit, timeout)
+    blog_enabled = bool(settings.get("blog_enabled", False))
+    pick_index = int(settings.get("blog_pick_index", 1))
+    candidate_limit = int(settings.get("content_candidate_limit", os.getenv("CONTENT_CANDIDATE_LIMIT", "10")))
+    fetch_limit = max(limit, candidate_limit) if blog_enabled and pick_index == 0 else limit
+    items = fetch_news(query, fetch_limit, timeout)
 
     if not items:
         return {"ok": True, "sent": 0, "message": "가져온 뉴스가 없습니다."}
 
+    email_items = items[:limit]
     content_package = None
-    if bool(settings.get("blog_enabled", False)):
-        pick_index = int(settings.get("blog_pick_index", 1))
-        pick_index = min(max(pick_index, 1), len(items))
+    selected_index = None
+    auto_selected = False
+    content_message = ""
+    if blog_enabled:
+        selected_item, selected_index, auto_selected = select_content_item(items, pick_index)
+        if auto_selected and article_score(selected_item) <= 0:
+            content_message = "본문이 충분한 기사는 없었지만, 제목과 요약을 바탕으로 해설형 콘텐츠를 만들었습니다."
         content_package = create_content_package(
-            items[pick_index - 1],
+            selected_item,
             str(settings.get("blog_draft_dir", "blog_drafts")),
         )
 
@@ -318,8 +581,11 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
         return {
             "ok": True,
             "sent": 0,
-            "items": [item.__dict__ for item in items],
+            "items": [item.__dict__ for item in email_items],
             "content_package": content_package.__dict__ if content_package else None,
+            "selected_index": selected_index,
+            "auto_selected": auto_selected,
+            "content_message": content_message,
         }
 
     sender = get_secret("GMAIL_ADDRESS")
@@ -328,12 +594,15 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
     if not sender or not app_password or not recipient:
         raise RuntimeError("Gmail 주소, 앱 비밀번호, 받는 이메일 설정이 필요합니다.")
 
-    send_email(build_email(sender, recipient, items, query, content_package), sender, app_password)
+    send_email(build_email(sender, recipient, email_items, query, content_package), sender, app_password)
     return {
         "ok": True,
-        "sent": len(items),
+        "sent": len(email_items),
         "recipient": recipient,
         "content_package": content_package.__dict__ if content_package else None,
+        "selected_index": selected_index,
+        "auto_selected": auto_selected,
+        "content_message": content_message,
     }
 
 
