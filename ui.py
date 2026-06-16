@@ -69,13 +69,13 @@ def read_recent_logs(limit: int = 8) -> list[str]:
 def get_recent_draft(settings: dict) -> str:
     draft_dir = BASE_DIR / str(settings.get("blog_draft_dir") or "blog_drafts")
     if not draft_dir.exists():
-        return "초안 없음"
+        return "콘텐츠 없음"
 
-    drafts = sorted(draft_dir.glob("*.md"), key=lambda path: path.stat().st_mtime, reverse=True)
-    if not drafts:
-        return "초안 없음"
+    packages = sorted(draft_dir.iterdir(), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not packages:
+        return "콘텐츠 없음"
 
-    return drafts[0].name
+    return packages[0].name
 
 
 def show_result(result: subprocess.CompletedProcess[str]) -> None:
@@ -99,9 +99,9 @@ def run_news_now(settings: dict) -> None:
         result = run_mailer(settings=settings)
         if result.get("sent", 0):
             st.success(f"{result['recipient']} 주소로 뉴스 {result['sent']}개를 보냈습니다.")
-            blog_draft = result.get("blog_draft")
-            if blog_draft:
-                st.success("블로그 초안도 만들었습니다. 이메일에서 확인하세요.")
+            content_package = result.get("content_package")
+            if content_package:
+                st.success("블로그·쓰레드·유튜브·Vrew 콘텐츠 패키지도 만들었습니다.")
         else:
             st.warning(result.get("message", "보낼 뉴스가 없습니다."))
     except Exception as exc:
@@ -354,7 +354,7 @@ with st.sidebar:
             <strong>시스템 상태</strong>
             데이터 수집: ONLINE<br>
             메일 발송: ONLINE<br>
-            블로그 초안: {'ON' if settings['blog_enabled'] else 'OFF'}
+            콘텐츠 패키지: {'ON' if settings['blog_enabled'] else 'OFF'}
         </div>
         <div class="side-note">
             <strong>오늘 설정</strong>
@@ -371,7 +371,7 @@ st.markdown(
     <div class="topbar">
         <div>
             <div class="page-title">현탑부동산 뉴스 자동화 대시보드..</div>
-            <div class="page-subtitle">{now_text} KST · 메일 발송, 블로그 초안, 스케줄러 관리</div>
+            <div class="page-subtitle">{now_text} KST · 메일 발송, 콘텐츠 패키지, 스케줄러 관리</div>
         </div>
         <div class="status-row">
             <span class="status-pill">LIVE</span>
@@ -394,7 +394,7 @@ if menu == "대시보드":
         card("수신 채널", recipient, "이메일 발송", "green")
     with col4:
         blog_status = "ON" if settings["blog_enabled"] else "OFF"
-        card("블로그 초안", blog_status, f"{settings['blog_pick_index']}번째 뉴스 선택", "amber")
+        card("콘텐츠 패키지", blog_status, f"{settings['blog_pick_index']}번째 뉴스로 4종 생성", "amber")
 
     st.markdown('<div class="section-title">Quick Actions</div>', unsafe_allow_html=True)
     action1, action2, action3 = st.columns([1, 1, 2])
@@ -418,13 +418,13 @@ if menu == "대시보드":
             unsafe_allow_html=True,
         )
     with right:
-        card("최근 블로그 초안", get_recent_draft(settings), "blog_drafts 폴더 기준", "rose")
+        card("최근 콘텐츠 패키지", get_recent_draft(settings), "blog_drafts 폴더 기준", "rose")
         card("안정장치", f"재시도 {settings['retry_count']}회", f"시간초과 {settings['request_timeout_seconds']}초", "cyan")
 
 elif menu == "설정":
     st.markdown('<div class="section-title">Configuration</div>', unsafe_allow_html=True)
     with st.form("settings_form"):
-        tab_news, tab_blog, tab_guard = st.tabs(["뉴스/수신", "블로그", "안정장치"])
+        tab_news, tab_blog, tab_guard = st.tabs(["뉴스/수신", "콘텐츠 제작", "안정장치"])
 
         with tab_news:
             news_query = st.text_input("키워드", value=settings["news_query"], placeholder="예: 과학, 경제, AI")
@@ -439,7 +439,7 @@ elif menu == "설정":
             schedule_time = st.text_input("매일 실행 시간", value=settings["schedule_time"], help="24시간 형식으로 입력하세요. 예: 07:00")
 
         with tab_blog:
-            blog_enabled = st.toggle("블로그 초안 생성", value=bool(settings["blog_enabled"]))
+            blog_enabled = st.toggle("콘텐츠 패키지 생성", value=bool(settings["blog_enabled"]))
             blog_pick_index = st.number_input(
                 "고를 뉴스 번호",
                 min_value=1,
@@ -447,7 +447,8 @@ elif menu == "설정":
                 value=int(settings["blog_pick_index"]),
                 disabled=not blog_enabled,
             )
-            blog_draft_dir = st.text_input("초안 저장 폴더", value=settings["blog_draft_dir"], disabled=not blog_enabled)
+            blog_draft_dir = st.text_input("콘텐츠 저장 폴더", value=settings["blog_draft_dir"], disabled=not blog_enabled)
+            st.caption("선택 뉴스로 3,000자 이내 후킹형 블로그 글, 200자 이내 쓰레드, 유튜브 슬라이드 대본, Vrew 대본을 만듭니다.")
 
         with tab_guard:
             retry_count = st.number_input("실패 시 재시도 횟수", min_value=0, max_value=10, value=int(settings["retry_count"]))

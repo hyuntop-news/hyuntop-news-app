@@ -4,7 +4,7 @@
   "recipient_email": "",
   "notification_channel": "email",
   "schedule_time": "07:00",
-  "blog_enabled": false,
+  "blog_enabled": true,
   "blog_pick_index": 1,
   "blog_draft_dir": "blog_drafts",
   "retry_count": 3,

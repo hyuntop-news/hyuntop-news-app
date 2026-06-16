@@ -26,10 +26,13 @@ class NewsItem:
 
 
 @dataclass
-class BlogDraft:
+class ContentPackage:
     news_title: str
-    content: str
-    path: str = ""
+    blog_post: str
+    thread_post: str
+    slide_script: str
+    vrew_script: str
+    directory: str = ""
 
 
 def load_env_file(path: Path = BASE_DIR / ".env") -> None:
@@ -90,46 +93,132 @@ def fetch_news(query: str, limit: int, timeout: int = 15) -> list[NewsItem]:
     return items
 
 
-def create_blog_draft(item: NewsItem, draft_dir_name: str) -> BlogDraft:
+def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackage:
     today = datetime.now().strftime("%Y-%m-%d")
-    content = f"""# {item.title}
+    blog_post = f"""# 지금 놓치면 뒤늦게 알게 됩니다: {item.title}
 
-## 한 줄 요약
-{item.title}
+"{item.title}"이라는 소식, 그냥 지나쳐도 될까요?
 
-## 도입
-오늘 살펴볼 뉴스는 "{item.title}"입니다. 이 소식이 주목받는 이유와 앞으로 확인할 부분을 정리해 보겠습니다.
+겉으로는 하나의 뉴스처럼 보이지만, 이 이슈가 앞으로의 흐름을 보여주는 신호일 수 있습니다. 지금 알아야 할 핵심만 빠르게 정리해 보겠습니다.
 
-## 핵심 내용
-- 출처: {item.source}
-- 원문 링크: {item.link}
-- 확인 날짜: {today}
+## 왜 지금 주목해야 할까?
 
-## 블로그 본문 초안
-이번 뉴스에서 가장 먼저 살펴볼 점은 이 이슈가 지금 주목받는 배경입니다. 제목만 전달하기보다 관련된 흐름과 독자에게 미칠 수 있는 영향을 함께 설명하면 이해하기 쉬운 글이 됩니다.
+사람들이 이 뉴스에 관심을 갖는 이유는 단순히 새로운 사건이기 때문만은 아닙니다. 관련 시장과 우리의 일상에 어떤 변화가 생길지 가늠할 수 있기 때문입니다.
 
-두 번째로 확인할 부분은 구체적인 사실입니다. 원문 기사에서 숫자, 일정, 관계자 발언을 확인해 본문에 보강하면 글의 신뢰도가 높아집니다.
+특히 제목에 담긴 핵심 변화가 누구에게 기회가 되고, 누구에게 부담이 될지 살펴봐야 합니다. 원문 기사에 나온 숫자와 일정, 관계자 발언을 함께 확인하면 변화의 크기를 더 정확하게 판단할 수 있습니다.
 
-마지막으로 앞으로 지켜볼 변화도 중요합니다. 이번 소식이 시장이나 일상에 어떤 영향을 줄지 생각해 보고, 독자가 확인하면 좋을 내용을 제안할 수 있습니다.
+## 꼭 확인할 세 가지
 
-## 마무리
-이 뉴스는 현재의 흐름을 이해할 수 있는 좋은 출발점입니다. 원문을 확인해 구체적인 사실과 개인적인 해석을 보강하면 게시 가능한 블로그 글로 완성할 수 있습니다.
+첫째, 이 변화가 시작된 배경입니다. 갑자기 생긴 일인지, 이전부터 이어진 흐름이 결과로 나타난 것인지 확인해야 합니다.
+
+둘째, 실제 영향 범위입니다. 관련 업계만의 이야기인지, 소비자와 일반 대중의 선택에도 영향을 주는지 살펴볼 필요가 있습니다.
+
+셋째, 다음 움직임입니다. 발표나 사건 자체보다 이후에 나올 정책, 기업 대응, 시장 반응이 더 중요할 수 있습니다.
+
+## 우리가 준비할 것은?
+
+뉴스를 보고 바로 결론을 내리기보다 원문을 확인하고, 반대 관점의 기사도 함께 살펴보는 것이 좋습니다. 변화가 내 일과 생활에 직접 연결된다면 지금부터 선택지를 정리해 두는 것이 유리합니다.
+
+## 결론
+
+이번 뉴스의 핵심은 "{item.title}"입니다. 중요한 것은 소식을 아는 데서 끝내지 않고, 다음 변화가 어디에서 나타날지 한발 먼저 관찰하는 것입니다.
+
+출처: {item.source}
+원문: {item.link}
+확인일: {today}
+"""
+    blog_post = blog_post[:3000]
+
+    thread_post = (
+        f"놓치면 뒤늦게 알게 될 뉴스: {item.title} "
+        "핵심은 사건 자체보다 다음 변화입니다. 배경·영향 범위·후속 움직임을 확인하세요. "
+        f"원문: {item.link}"
+    )[:200]
+
+    slide_script = f"""# 유튜브 슬라이드 대본
+
+## 슬라이드 1. 오프닝
+- 화면 문구: 지금 놓치면 늦습니다
+- 내레이션: 오늘 꼭 확인해야 할 뉴스는 "{item.title}"입니다.
+
+## 슬라이드 2. 무슨 일이 있었나
+- 화면 문구: 핵심 사건 한눈에 보기
+- 내레이션: 먼저 원문 기사를 기준으로 사건의 배경과 현재 상황을 정리해 보겠습니다.
+
+## 슬라이드 3. 왜 중요한가
+- 화면 문구: 우리에게 미칠 영향
+- 내레이션: 이 뉴스가 중요한 이유는 관련 시장뿐 아니라 우리의 선택에도 영향을 줄 수 있기 때문입니다.
+
+## 슬라이드 4. 꼭 볼 세 가지
+- 화면 문구: 배경 · 영향 · 다음 움직임
+- 내레이션: 변화가 시작된 배경, 실제 영향 범위, 앞으로 나올 후속 움직임을 확인해야 합니다.
+
+## 슬라이드 5. 대응 방법
+- 화면 문구: 지금 무엇을 준비할까?
+- 내레이션: 성급한 결론보다 원문과 반대 관점을 함께 확인하고, 내 상황에 맞는 선택지를 준비하세요.
+
+## 슬라이드 6. 마무리
+- 화면 문구: 다음 변화가 더 중요합니다
+- 내레이션: 여러분은 이번 뉴스를 어떻게 보셨나요? 의견을 댓글로 남겨 주세요.
+
+출처: {item.source}
+원문: {item.link}
 """
 
-    path_text = ""
+    vrew_script = f"""[오프닝]
+지금 놓치면 뒤늦게 알게 될 수 있습니다.
+오늘의 뉴스는, {item.title}입니다.
+
+[장면 1]
+먼저 무슨 일이 있었는지 살펴보겠습니다.
+원문 기사를 기준으로 사건의 배경과 현재 상황을 확인해야 합니다.
+
+[장면 2]
+그렇다면 왜 이 뉴스가 중요할까요?
+관련 업계만의 이야기가 아니라 우리의 선택과 생활에도 영향을 줄 가능성이 있기 때문입니다.
+
+[장면 3]
+꼭 확인할 것은 세 가지입니다.
+변화가 시작된 배경.
+실제 영향 범위.
+그리고 앞으로 나올 후속 움직임입니다.
+
+[장면 4]
+뉴스를 보고 바로 결론을 내리기보다 원문과 다른 관점을 함께 확인하세요.
+변화가 내 일과 생활에 연결된다면 지금부터 선택지를 준비하는 것이 좋습니다.
+
+[클로징]
+사건 자체보다 다음 변화가 더 중요합니다.
+여러분의 생각은 어떠신가요?
+
+출처는 {item.source}입니다.
+"""
+
+    directory_text = ""
     try:
         draft_dir = BASE_DIR / (draft_dir_name or "blog_drafts")
         draft_dir.mkdir(parents=True, exist_ok=True)
         safe_title = "".join(character for character in item.title if character not in '\\/:*?"<>|')
-        safe_title = "-".join(safe_title.split())[:60] or "news-blog-draft"
-        draft_path = draft_dir / f"{today}-{safe_title}.md"
-        draft_path.write_text(content, encoding="utf-8")
-        path_text = str(draft_path)
+        safe_title = "-".join(safe_title.split())[:50] or "news-content"
+        package_dir = draft_dir / f"{today}-{safe_title}"
+        package_dir.mkdir(parents=True, exist_ok=True)
+        (package_dir / "01-blog-post.md").write_text(blog_post, encoding="utf-8")
+        (package_dir / "02-thread-post.txt").write_text(thread_post, encoding="utf-8")
+        (package_dir / "03-youtube-slides.md").write_text(slide_script, encoding="utf-8")
+        (package_dir / "04-vrew-script.txt").write_text(vrew_script, encoding="utf-8")
+        directory_text = str(package_dir)
     except OSError:
-        # Cloud storage may be temporary or read-only; the draft still goes into the email.
+        # Cloud storage may be temporary or read-only; the package still goes into the email.
         pass
 
-    return BlogDraft(news_title=item.title, content=content, path=path_text)
+    return ContentPackage(
+        news_title=item.title,
+        blog_post=blog_post,
+        thread_post=thread_post,
+        slide_script=slide_script,
+        vrew_script=vrew_script,
+        directory=directory_text,
+    )
 
 
 def build_email(
@@ -137,7 +226,7 @@ def build_email(
     recipient: str,
     items: list[NewsItem],
     query: str,
-    blog_draft: BlogDraft | None = None,
+    content_package: ContentPackage | None = None,
 ) -> EmailMessage:
     today = datetime.now().strftime("%Y-%m-%d")
     topic = query or "주요"
@@ -153,16 +242,28 @@ def build_email(
         """
         for item in items
     )
-    draft_html = ""
-    draft_plain = ""
-    if blog_draft:
-        draft_html = f"""
+    package_html = ""
+    package_plain = ""
+    if content_package:
+        package_html = f"""
           <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0">
-          <h2>오늘의 블로그 초안</h2>
-          <p style="color:#667085">선택 뉴스: {html.escape(blog_draft.news_title)}</p>
-          <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px;font-family:Arial,'Malgun Gothic',sans-serif;line-height:1.6">{html.escape(blog_draft.content)}</pre>
+          <h2>오늘의 콘텐츠 패키지</h2>
+          <p style="color:#667085">선택 뉴스: {html.escape(content_package.news_title)}</p>
+          <h3>1. 후킹형 블로그 글</h3>
+          <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.blog_post)}</pre>
+          <h3>2. 쓰레드 글</h3>
+          <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.thread_post)}</pre>
+          <h3>3. 유튜브 슬라이드 대본</h3>
+          <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.slide_script)}</pre>
+          <h3>4. Vrew 대본</h3>
+          <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.vrew_script)}</pre>
         """
-        draft_plain = f"\n\n오늘의 블로그 초안\n\n{blog_draft.content}"
+        package_plain = (
+            f"\n\n[후킹형 블로그 글]\n{content_package.blog_post}"
+            f"\n\n[쓰레드 글]\n{content_package.thread_post}"
+            f"\n\n[유튜브 슬라이드 대본]\n{content_package.slide_script}"
+            f"\n\n[Vrew 대본]\n{content_package.vrew_script}"
+        )
 
     body = f"""
     <html lang="ko">
@@ -170,7 +271,7 @@ def build_email(
         <main style="max-width:680px;margin:auto;background:#fff;border:1px solid #e5e7eb;padding:28px">
           <h1 style="margin-top:0">아침 {html.escape(topic)} 뉴스</h1>
           <ol>{rows}</ol>
-          {draft_html}
+          {package_html}
         </main>
       </body>
     </html>
@@ -181,7 +282,7 @@ def build_email(
     message["To"] = recipient
     message["Subject"] = subject
     message.set_content(
-        "\n".join(f"{index}. {item.title}\n{item.link}" for index, item in enumerate(items, 1)) + draft_plain
+        "\n".join(f"{index}. {item.title}\n{item.link}" for index, item in enumerate(items, 1)) + package_plain
     )
     message.add_alternative(body, subtype="html")
     return message
@@ -204,11 +305,11 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
     if not items:
         return {"ok": True, "sent": 0, "message": "가져온 뉴스가 없습니다."}
 
-    blog_draft = None
+    content_package = None
     if bool(settings.get("blog_enabled", False)):
         pick_index = int(settings.get("blog_pick_index", 1))
         pick_index = min(max(pick_index, 1), len(items))
-        blog_draft = create_blog_draft(
+        content_package = create_content_package(
             items[pick_index - 1],
             str(settings.get("blog_draft_dir", "blog_drafts")),
         )
@@ -218,7 +319,7 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
             "ok": True,
             "sent": 0,
             "items": [item.__dict__ for item in items],
-            "blog_draft": blog_draft.__dict__ if blog_draft else None,
+            "content_package": content_package.__dict__ if content_package else None,
         }
 
     sender = get_secret("GMAIL_ADDRESS")
@@ -227,12 +328,12 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
     if not sender or not app_password or not recipient:
         raise RuntimeError("Gmail 주소, 앱 비밀번호, 받는 이메일 설정이 필요합니다.")
 
-    send_email(build_email(sender, recipient, items, query, blog_draft), sender, app_password)
+    send_email(build_email(sender, recipient, items, query, content_package), sender, app_password)
     return {
         "ok": True,
         "sent": len(items),
         "recipient": recipient,
-        "blog_draft": blog_draft.__dict__ if blog_draft else None,
+        "content_package": content_package.__dict__ if content_package else None,
     }
 
 
