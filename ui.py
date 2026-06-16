@@ -126,29 +126,47 @@ def show_content_viewer(settings: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    tab_blog, tab_tistory, tab_thread, tab_youtube, tab_vrew = st.tabs(
-        ["블로그 글", "티스토리 글", "쓰레드", "유튜브 대본", "Vrew 대본"]
-    )
-    with tab_blog:
-        st.markdown(read_text_if_exists(package_dir / "01-blog-post.md"))
-    with tab_tistory:
-        st.markdown(read_text_if_exists(package_dir / "02-tistory-post.md"))
-    with tab_thread:
+    content_menu = {
+        "블로그 글": "01-blog-post.md",
+        "티스토리 글": "02-tistory-post.md",
+        "쓰레드": "03-thread-post.txt",
+        "유튜브 대본": "04-youtube-slides.md",
+        "PPTX": "06-youtube-slides.pptx",
+        "Vrew 대본": "05-vrew-script.txt",
+    }
+    selected_content = st.session_state.get("content_view", "블로그 글")
+    if selected_content not in content_menu:
+        selected_content = "블로그 글"
+
+    if selected_content == "쓰레드":
         st.text_area(
             "쓰레드 글",
-            value=read_text_if_exists(package_dir / "03-thread-post.txt"),
-            height=120,
+            value=read_text_if_exists(package_dir / content_menu[selected_content]),
+            height=140,
             label_visibility="collapsed",
         )
-    with tab_youtube:
-        st.markdown(read_text_if_exists(package_dir / "04-youtube-slides.md"))
-    with tab_vrew:
+    elif selected_content == "Vrew 대본":
         st.text_area(
             "Vrew 대본",
-            value=read_text_if_exists(package_dir / "05-vrew-script.txt"),
-            height=360,
+            value=read_text_if_exists(package_dir / content_menu[selected_content]),
+            height=520,
             label_visibility="collapsed",
         )
+    elif selected_content == "PPTX":
+        pptx_path = package_dir / content_menu[selected_content]
+        if pptx_path.exists():
+            st.download_button(
+                "PPTX 슬라이드 다운로드",
+                data=pptx_path.read_bytes(),
+                file_name=pptx_path.name,
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                use_container_width=True,
+            )
+            st.caption("대본의 슬라이드 1~6 순서대로 PPTX 6장이 생성됩니다.")
+        else:
+            st.info("아직 PPTX 파일이 없습니다. 새로 '지금 테스트 실행'을 누르면 생성됩니다.")
+    else:
+        st.markdown(read_text_if_exists(package_dir / content_menu[selected_content]))
 
 
 def show_result(result: subprocess.CompletedProcess[str]) -> None:
@@ -177,7 +195,7 @@ def run_news_now(settings: dict) -> None:
                 selected_text = f"{result.get('selected_index')}번째 뉴스"
                 if result.get("auto_selected"):
                     selected_text += "를 본문 기준으로 자동 선택"
-                st.success(f"{selected_text}로 블로그·티스토리·쓰레드·유튜브·Vrew 콘텐츠 패키지도 만들었습니다.")
+                st.success(f"{selected_text}로 블로그·티스토리·쓰레드·유튜브·PPTX·Vrew 콘텐츠 패키지도 만들었습니다.")
             elif result.get("content_message"):
                 st.warning(result["content_message"])
         else:
@@ -376,6 +394,14 @@ st.markdown(
         margin-bottom: 6px;
     }
 
+    .sidebar-subtitle {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        margin: 18px 0 8px;
+        text-transform: uppercase;
+    }
+
     .stButton > button {
         border-radius: 8px;
         border: 1px solid #3b82f6;
@@ -414,6 +440,14 @@ st.markdown(
         padding: 10px 16px;
     }
 
+    div[role="radiogroup"] label {
+        background: #111827;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+    }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -426,6 +460,14 @@ with st.sidebar:
     st.markdown('<div class="brand">HYUNTOP NEWS</div>', unsafe_allow_html=True)
     st.caption("자동화 컨트롤")
     menu = st.radio("메뉴", ["대시보드", "설정", "실행 기록"], label_visibility="collapsed")
+    if menu == "대시보드":
+        st.markdown('<div class="sidebar-subtitle">저장 콘텐츠</div>', unsafe_allow_html=True)
+        st.radio(
+            "저장 콘텐츠",
+            ["블로그 글", "티스토리 글", "쓰레드", "유튜브 대본", "PPTX", "Vrew 대본"],
+            key="content_view",
+            label_visibility="collapsed",
+        )
     st.markdown(
         f"""
         <div class="side-note">
@@ -473,7 +515,7 @@ if menu == "대시보드":
     with col4:
         blog_status = "ON" if settings["blog_enabled"] else "OFF"
         pick_label = "본문 많은 뉴스 자동 선택" if int(settings.get("blog_pick_index", 0)) == 0 else f"{settings['blog_pick_index']}번째 뉴스로 4종 생성"
-        card("콘텐츠 패키지", blog_status, pick_label.replace("4종", "5종"), "amber")
+        card("콘텐츠 패키지", blog_status, pick_label.replace("4종", "6종").replace("5종", "6종"), "amber")
 
     st.markdown('<div class="section-title">Quick Actions</div>', unsafe_allow_html=True)
     action1, action2, action3 = st.columns([1, 1, 2])
@@ -542,7 +584,7 @@ elif menu == "설정":
                 value=int(settings.get("content_candidate_limit", 10)),
                 disabled=(not blog_enabled) or (not auto_pick),
             )
-            st.caption("자동 선택을 켜면 뉴스 목록 중 본문/요약이 가장 많이 확보된 기사로 블로그, 티스토리, 쓰레드, 유튜브, Vrew 콘텐츠를 만듭니다.")
+            st.caption("자동 선택을 켜면 뉴스 목록 중 본문/요약이 가장 많이 확보된 기사로 블로그, 티스토리, 쓰레드, 유튜브, PPTX, Vrew 콘텐츠를 만듭니다.")
 
         with tab_guard:
             retry_count = st.number_input("실패 시 재시도 횟수", min_value=0, max_value=10, value=int(settings["retry_count"]))

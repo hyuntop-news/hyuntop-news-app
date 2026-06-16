@@ -1,4 +1,5 @@
 import argparse
+import ast
 import html
 import json
 import os
@@ -38,6 +39,7 @@ class ContentPackage:
     slide_script: str
     vrew_script: str
     directory: str = ""
+    pptx_path: str = ""
 
 
 def load_env_file(path: Path = BASE_DIR / ".env") -> None:
@@ -202,8 +204,8 @@ def create_gemini_content(item: NewsItem, article_context: str) -> dict | None:
 - blog_post: 3000자 이내, 후킹 모드, 블로그 게시용 문체, 제목 포함
 - tistory_post: blog_post를 티스토리 블로그용으로 각색. 검색 유입용 제목, 짧은 도입, H2/H3 소제목, 목록, 마무리, 관련 태그 5~8개 포함
 - thread_post: 200자 이내, SNS 쓰레드 첫 글로 사용 가능
-- slide_script: 유튜브 제작용 슬라이드 6장 구성, 각 장마다 화면 문구와 내레이션 포함
-- vrew_script: Vrew에 붙여넣기 좋은 장면별 내레이션 대본
+- slide_script: 유튜브 제작용 슬라이드 6장 구성. 반드시 "## 슬라이드 1."부터 "## 슬라이드 6."까지 위에서 아래로 순서대로 작성하고, 각 장마다 "- 화면 문구:"와 "- 내레이션:"을 포함
+- vrew_script: Vrew에 붙여넣기 좋은 장면별 내레이션 대본. 반드시 "## 슬라이드 1."부터 "## 슬라이드 6."까지 위에서 아래로 순서대로 작성
 
 뉴스 제목:
 {item.title}
@@ -324,6 +326,357 @@ def fetch_news(query: str, limit: int, timeout: int = 15) -> list[NewsItem]:
             )
         )
     return items
+
+
+def parse_slide_blocks(slide_script: str) -> list[dict[str, str]]:
+    def parse_structured(value: str) -> list[dict[str, str]]:
+        text = value.strip()
+        if not text or text[0] not in "[{":
+            return []
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            try:
+                parsed = ast.literal_eval(text)
+            except Exception:
+                return []
+
+        if isinstance(parsed, dict):
+            parsed = parsed.get("slides") or parsed.get("slide_script") or parsed.get("items") or []
+        if not isinstance(parsed, list):
+            return []
+
+        structured: list[dict[str, str]] = []
+        for index, item in enumerate(parsed, 1):
+            if not isinstance(item, dict):
+                continue
+            number = item.get("slide_number") or item.get("number") or item.get("slide") or index
+            title = item.get("title") or item.get("heading") or ""
+            screen = item.get("screen_text") or item.get("screen") or item.get("화면 문구") or item.get("caption") or ""
+            narration = item.get("narration") or item.get("voiceover") or item.get("내레이션") or item.get("script") or ""
+            structured.append(
+                {
+                    "title": f"슬라이드 {number}",
+                    "screen": str(screen).strip() or str(title).strip(),
+                    "narration": str(narration).strip(),
+                }
+            )
+        return structured
+
+    structured = parse_structured(slide_script)
+    if structured:
+        return structured
+
+    slides: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    mode = ""
+
+    for raw_line in slide_script.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        if line.startswith("##"):
+            if current:
+                slides.append(current)
+            current = {"title": line.lstrip("# ").strip(), "screen": "", "narration": ""}
+            mode = ""
+            continue
+
+        if current is None:
+            continue
+
+        if line.startswith("- 화면 문구:") or line.startswith("화면 문구:"):
+            current["screen"] = line.split(":", 1)[1].strip()
+            mode = ""
+        elif line.startswith("- 내레이션:") or line.startswith("내레이션:"):
+            current["narration"] = line.split(":", 1)[1].strip()
+            mode = "narration"
+        elif line == "화면 문구":
+            mode = "screen"
+        elif line == "내레이션":
+            mode = "narration"
+        elif mode == "screen":
+            current["screen"] = (current["screen"] + "\n" + line).strip()
+        else:
+            cleaned = line.lstrip("- ").strip()
+            current["narration"] = (current["narration"] + "\n" + cleaned).strip()
+
+    if current:
+        slides.append(current)
+
+    return slides
+
+
+def fallback_slide_blocks(item: NewsItem, article_context: str) -> list[dict[str, str]]:
+    return [
+        {
+            "title": "슬라이드 1. 오프닝",
+            "screen": "지금 놓치면 늦습니다",
+            "narration": f'오늘 꼭 확인해야 할 뉴스는 "{item.title}"입니다.',
+        },
+        {
+            "title": "슬라이드 2. 무슨 일이 있었나",
+            "screen": "핵심 사건 한눈에 보기",
+            "narration": f"기사에서 확인한 주요 내용은 다음과 같습니다. {article_context[:180]}",
+        },
+        {
+            "title": "슬라이드 3. 왜 중요한가",
+            "screen": "우리에게 미칠 영향",
+            "narration": "이 뉴스가 중요한 이유는 관련 시장뿐 아니라 우리의 선택에도 영향을 줄 수 있기 때문입니다.",
+        },
+        {
+            "title": "슬라이드 4. 꼭 볼 세 가지",
+            "screen": "배경 · 영향 · 다음 움직임",
+            "narration": "변화가 시작된 배경, 실제 영향 범위, 앞으로 나올 후속 움직임을 확인해야 합니다.",
+        },
+        {
+            "title": "슬라이드 5. 대응 방법",
+            "screen": "지금 무엇을 준비할까?",
+            "narration": "성급한 결론보다 원문과 반대 관점을 함께 확인하고, 내 상황에 맞는 선택지를 준비하세요.",
+        },
+        {
+            "title": "슬라이드 6. 마무리",
+            "screen": "다음 변화가 더 중요합니다",
+            "narration": "여러분은 이번 뉴스를 어떻게 보셨나요? 의견을 댓글로 남겨 주세요.",
+        },
+    ]
+
+
+def ensure_six_slide_blocks(slide_script: str, item: NewsItem, article_context: str) -> list[dict[str, str]]:
+    parsed = parse_slide_blocks(slide_script)
+    defaults = fallback_slide_blocks(item, article_context)
+    blocks: list[dict[str, str]] = []
+
+    for index in range(6):
+        source = parsed[index] if index < len(parsed) else {}
+        default = defaults[index]
+        blocks.append(
+            {
+                "title": f"슬라이드 {index + 1}",
+                "screen": source.get("screen") or default["screen"],
+                "narration": source.get("narration") or default["narration"],
+            }
+        )
+
+    return blocks
+
+
+def format_slide_script(blocks: list[dict[str, str]], source: str, link: str) -> str:
+    sections = ["# 유튜브 슬라이드 대본"]
+    for block in blocks:
+        sections.append(
+            f"""
+## {block['title']}
+화면 문구
+{block['screen']}
+
+내레이션
+{block['narration']}
+""".strip()
+        )
+    sections.append(f"출처: {source}\n원문: {link}")
+    return "\n\n".join(sections)
+
+
+def format_vrew_script(blocks: list[dict[str, str]], source: str) -> str:
+    sections = ["# Vrew 대본"]
+    for block in blocks:
+        sections.append(
+            f"""
+## {block['title']}
+화면 문구
+{block['screen']}
+
+내레이션
+{block['narration']}
+""".strip()
+        )
+    sections.append(f"출처: {source}")
+    return "\n\n".join(sections)
+
+
+def add_pptx_textbox(slide, text: str, left, top, width, height, *, size: int, bold: bool = False, color=None) -> None:
+    from pptx.util import Pt
+
+    box = slide.shapes.add_textbox(left, top, width, height)
+    frame = box.text_frame
+    frame.clear()
+    frame.word_wrap = True
+    paragraph = frame.paragraphs[0]
+    run = paragraph.add_run()
+    run.text = text
+    run.font.size = Pt(size)
+    run.font.bold = bold
+    if color is not None:
+        run.font.color.rgb = color
+
+
+def create_basic_pptx(slide_script: str, output_path: Path, title: str) -> str:
+    import zipfile
+
+    def esc(value: str) -> str:
+        return html.escape(value or "", quote=True)
+
+    def emu(inches: float) -> int:
+        return int(inches * 914400)
+
+    def paragraphs(text: str, size: int, color: str = "F8FAFC", bold: bool = False) -> str:
+        lines = [line.strip() for line in (text or "").splitlines() if line.strip()] or [""]
+        bold_attr = ' b="1"' if bold else ""
+        return "".join(
+            f'<a:p><a:r><a:rPr lang="ko-KR" sz="{size * 100}"{bold_attr}>'
+            f'<a:solidFill><a:srgbClr val="{color}"/></a:solidFill></a:rPr>'
+            f"<a:t>{esc(line)}</a:t></a:r></a:p>"
+            for line in lines
+        )
+
+    def shape(shape_id: int, name: str, text: str, x: float, y: float, w: float, h: float, size: int, *, bold: bool = False, fill: str = "0F172A", color: str = "F8FAFC") -> str:
+        return f"""
+        <p:sp>
+          <p:nvSpPr><p:cNvPr id="{shape_id}" name="{esc(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+          <p:spPr>
+            <a:xfrm><a:off x="{emu(x)}" y="{emu(y)}"/><a:ext cx="{emu(w)}" cy="{emu(h)}"/></a:xfrm>
+            <a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>
+            <a:solidFill><a:srgbClr val="{fill}"/></a:solidFill>
+            <a:ln><a:noFill/></a:ln>
+          </p:spPr>
+          <p:txBody><a:bodyPr wrap="square" anchor="mid" lIns="152400" rIns="152400" tIns="76200" bIns="76200"/><a:lstStyle/>{paragraphs(text, size, color, bold)}</p:txBody>
+        </p:sp>
+        """
+
+    def slide_xml(number: int, slide_title: str, screen: str, narration: str) -> str:
+        return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld>
+            <p:bg><p:bgPr><a:solidFill><a:srgbClr val="050A18"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>
+            <p:spTree>
+              <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+              <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+              {shape(2, "Header", slide_title[:60], 0.65, 0.48, 12.0, 0.55, 17, bold=True, fill="111827")}
+              {shape(3, "Screen Text", screen[:95], 0.9, 1.45, 11.4, 1.25, 33, bold=True, fill="050A18")}
+              {shape(4, "Narration", "내레이션\\n" + narration[:520], 0.9, 3.2, 11.4, 2.55, 18, fill="0F172A")}
+              {shape(5, "Footer", f"HYUNTOP NEWS | Slide {number}", 0.7, 6.88, 5.5, 0.25, 9, fill="050A18", color="94A3B8")}
+            </p:spTree>
+          </p:cSld>
+          <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
+        </p:sld>"""
+
+    slides_data = parse_slide_blocks(slide_script)
+    if not slides_data:
+        slides_data = [{"title": "유튜브 슬라이드", "screen": title, "narration": slide_script[:600]}]
+
+    all_slides = slides_data[:6]
+    slide_count = len(all_slides)
+
+    content_overrides = "\n".join(
+        f'<Override PartName="/ppt/slides/slide{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>'
+        for i in range(1, slide_count + 1)
+    )
+    slide_ids = "\n".join(f'<p:sldId id="{255 + i}" r:id="rId{i}"/>' for i in range(1, slide_count + 1))
+    rels = "\n".join(
+        f'<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide{i}.xml"/>'
+        for i in range(1, slide_count + 1)
+    )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+              <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+              <Default Extension="xml" ContentType="application/xml"/>
+              <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
+              {content_overrides}
+            </Types>""",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+              <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+            </Relationships>""",
+        )
+        archive.writestr(
+            "ppt/presentation.xml",
+            f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+              <p:sldIdLst>{slide_ids}</p:sldIdLst>
+              <p:sldSz cx="12192000" cy="6858000" type="wide"/>
+              <p:notesSz cx="6858000" cy="9144000"/>
+            </p:presentation>""",
+        )
+        archive.writestr(
+            "ppt/_rels/presentation.xml.rels",
+            f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">{rels}</Relationships>""",
+        )
+        for index, slide_info in enumerate(all_slides, 1):
+            archive.writestr(
+                f"ppt/slides/slide{index}.xml",
+                slide_xml(index, slide_info.get("title", f"슬라이드 {index}"), slide_info.get("screen", ""), slide_info.get("narration", "")),
+            )
+
+    return str(output_path)
+
+
+def create_youtube_pptx(slide_script: str, output_path: Path, title: str) -> str:
+    try:
+        from pptx import Presentation
+        from pptx.dml.color import RGBColor
+        from pptx.enum.shapes import MSO_SHAPE
+        from pptx.util import Inches, Pt
+    except Exception:
+        return create_basic_pptx(slide_script, output_path, title)
+
+    slides_data = parse_slide_blocks(slide_script)
+    if not slides_data:
+        slides_data = [{"title": "유튜브 슬라이드", "screen": title, "narration": slide_script[:600]}]
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    blank_layout = prs.slide_layouts[6]
+
+    bg = RGBColor(5, 10, 24)
+    panel = RGBColor(15, 23, 42)
+    cyan = RGBColor(34, 211, 238)
+    white = RGBColor(248, 250, 252)
+    muted = RGBColor(148, 163, 184)
+
+    def set_background(slide) -> None:
+        fill = slide.background.fill
+        fill.solid()
+        fill.fore_color.rgb = bg
+
+    def add_footer(slide, number: int) -> None:
+        add_pptx_textbox(slide, f"HYUNTOP NEWS  |  Slide {number}", Inches(0.7), Inches(6.95), Inches(6), Inches(0.25), size=9, color=muted)
+
+    for index, slide_info in enumerate(slides_data[:6], 1):
+        slide = prs.slides.add_slide(blank_layout)
+        set_background(slide)
+
+        header = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(0.5), Inches(12.1), Inches(0.55))
+        header.fill.solid()
+        header.fill.fore_color.rgb = panel
+        header.line.color.rgb = cyan
+        header.line.width = Pt(1)
+        add_pptx_textbox(slide, slide_info.get("title", f"슬라이드 {index}")[:60], Inches(0.85), Inches(0.61), Inches(10.5), Inches(0.35), size=17, bold=True, color=white)
+
+        screen_text = slide_info.get("screen") or slide_info.get("title", "")
+        add_pptx_textbox(slide, screen_text[:95], Inches(0.9), Inches(1.55), Inches(11.4), Inches(1.1), size=33, bold=True, color=white)
+
+        narration_box = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.9), Inches(3.25), Inches(11.4), Inches(2.45))
+        narration_box.fill.solid()
+        narration_box.fill.fore_color.rgb = panel
+        narration_box.line.color.rgb = RGBColor(51, 65, 85)
+        add_pptx_textbox(slide, "내레이션", Inches(1.2), Inches(3.47), Inches(2), Inches(0.28), size=12, bold=True, color=cyan)
+        add_pptx_textbox(slide, slide_info.get("narration", "")[:520], Inches(1.2), Inches(3.9), Inches(10.3), Inches(1.45), size=18, color=white)
+        add_footer(slide, index)
+
+    prs.save(output_path)
+    return str(output_path)
 
 
 def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackage:
@@ -478,7 +831,12 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
 출처는 {item.source}입니다.
 """
 
+    slide_blocks = ensure_six_slide_blocks(slide_script, item, article_context)
+    slide_script = format_slide_script(slide_blocks, item.source, item.link)
+    vrew_script = format_vrew_script(slide_blocks, item.source)
+
     directory_text = ""
+    pptx_path = ""
     try:
         draft_dir = BASE_DIR / (draft_dir_name or "blog_drafts")
         draft_dir.mkdir(parents=True, exist_ok=True)
@@ -491,6 +849,7 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
         (package_dir / "03-thread-post.txt").write_text(thread_post, encoding="utf-8")
         (package_dir / "04-youtube-slides.md").write_text(slide_script, encoding="utf-8")
         (package_dir / "05-vrew-script.txt").write_text(vrew_script, encoding="utf-8")
+        pptx_path = create_youtube_pptx(slide_script, package_dir / "06-youtube-slides.pptx", item.title)
         directory_text = str(package_dir)
     except OSError:
         # Cloud storage may be temporary or read-only; the package still goes into the email.
@@ -504,6 +863,7 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
         slide_script=slide_script,
         vrew_script=vrew_script,
         directory=directory_text,
+        pptx_path=pptx_path,
     )
 
 
@@ -574,6 +934,15 @@ def build_email(
         "\n".join(f"{index}. {item.title}\n{item.link}" for index, item in enumerate(items, 1)) + package_plain
     )
     message.add_alternative(body, subtype="html")
+    if content_package and content_package.pptx_path:
+        pptx_file = Path(content_package.pptx_path)
+        if pptx_file.exists():
+            message.add_attachment(
+                pptx_file.read_bytes(),
+                maintype="application",
+                subtype="vnd.openxmlformats-officedocument.presentationml.presentation",
+                filename=pptx_file.name,
+            )
     return message
 
 
