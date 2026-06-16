@@ -78,6 +78,62 @@ def get_recent_draft(settings: dict) -> str:
     return packages[0].name
 
 
+def get_recent_content_package(settings: dict) -> Path | None:
+    draft_dir = BASE_DIR / str(settings.get("blog_draft_dir") or "blog_drafts")
+    if not draft_dir.exists():
+        return None
+
+    packages = sorted(
+        [path for path in draft_dir.iterdir() if path.is_dir()],
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return packages[0] if packages else None
+
+
+def read_text_if_exists(path: Path) -> str:
+    if not path.exists():
+        return "아직 저장된 내용이 없습니다."
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def show_content_viewer(settings: dict) -> None:
+    package_dir = get_recent_content_package(settings)
+    if package_dir is None:
+        st.info("아직 저장된 콘텐츠 패키지가 없습니다. '지금 테스트 실행'을 누르면 생성됩니다.")
+        return
+
+    st.markdown(
+        f"""
+        <div class="side-note">
+            <strong>최근 저장 콘텐츠</strong>
+            {html.escape(package_dir.name)}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    tab_blog, tab_thread, tab_youtube, tab_vrew = st.tabs(["블로그 글", "쓰레드", "유튜브 대본", "Vrew 대본"])
+    with tab_blog:
+        st.markdown(read_text_if_exists(package_dir / "01-blog-post.md"))
+    with tab_thread:
+        st.text_area(
+            "쓰레드 글",
+            value=read_text_if_exists(package_dir / "02-thread-post.txt"),
+            height=120,
+            label_visibility="collapsed",
+        )
+    with tab_youtube:
+        st.markdown(read_text_if_exists(package_dir / "03-youtube-slides.md"))
+    with tab_vrew:
+        st.text_area(
+            "Vrew 대본",
+            value=read_text_if_exists(package_dir / "04-vrew-script.txt"),
+            height=360,
+            label_visibility="collapsed",
+        )
+
+
 def show_result(result: subprocess.CompletedProcess[str]) -> None:
     if result.returncode == 0:
         st.success("완료되었습니다.")
@@ -420,6 +476,9 @@ if menu == "대시보드":
     with right:
         card("최근 콘텐츠 패키지", get_recent_draft(settings), "blog_drafts 폴더 기준", "rose")
         card("안정장치", f"재시도 {settings['retry_count']}회", f"시간초과 {settings['request_timeout_seconds']}초", "cyan")
+
+    st.markdown('<div class="section-title">Saved Content</div>', unsafe_allow_html=True)
+    show_content_viewer(settings)
 
 elif menu == "설정":
     st.markdown('<div class="section-title">Configuration</div>', unsafe_allow_html=True)
