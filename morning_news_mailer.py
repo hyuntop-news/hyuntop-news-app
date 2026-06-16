@@ -33,6 +33,7 @@ class NewsItem:
 class ContentPackage:
     news_title: str
     blog_post: str
+    tistory_post: str
     thread_post: str
     slide_script: str
     vrew_script: str
@@ -195,10 +196,11 @@ def create_gemini_content(item: NewsItem, article_context: str) -> dict | None:
 정보가 부족하다는 말은 짧게 한 번만 쓰고, 사과하거나 "작성할 수 없다"는 식으로 말하지 마라.
 
 출력은 반드시 JSON 객체 하나만 반환하라.
-키는 blog_post, thread_post, slide_script, vrew_script 네 개만 사용하라.
+키는 blog_post, tistory_post, thread_post, slide_script, vrew_script 다섯 개만 사용하라.
 
 조건:
 - blog_post: 3000자 이내, 후킹 모드, 블로그 게시용 문체, 제목 포함
+- tistory_post: blog_post를 티스토리 블로그용으로 각색. 검색 유입용 제목, 짧은 도입, H2/H3 소제목, 목록, 마무리, 관련 태그 5~8개 포함
 - thread_post: 200자 이내, SNS 쓰레드 첫 글로 사용 가능
 - slide_script: 유튜브 제작용 슬라이드 6장 구성, 각 장마다 화면 문구와 내레이션 포함
 - vrew_script: Vrew에 붙여넣기 좋은 장면별 내레이션 대본
@@ -224,15 +226,17 @@ def create_gemini_content(item: NewsItem, article_context: str) -> dict | None:
         return None
 
     blog_post = str(data.get("blog_post", "")).strip()[:3000]
+    tistory_post = str(data.get("tistory_post", "")).strip()[:3200]
     thread_post = str(data.get("thread_post", "")).strip()[:200]
     slide_script = str(data.get("slide_script", "")).strip()
     vrew_script = str(data.get("vrew_script", "")).strip()
 
-    if not all([blog_post, thread_post, slide_script, vrew_script]):
+    if not all([blog_post, tistory_post, thread_post, slide_script, vrew_script]):
         return None
 
     return {
         "blog_post": blog_post,
+        "tistory_post": tistory_post,
         "thread_post": thread_post,
         "slide_script": slide_script,
         "vrew_script": vrew_script,
@@ -340,6 +344,7 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
     gemini_content = create_gemini_content(item, article_context)
     if gemini_content:
         blog_post = gemini_content["blog_post"]
+        tistory_post = gemini_content["tistory_post"]
         thread_post = gemini_content["thread_post"]
         slide_script = gemini_content["slide_script"]
         vrew_script = gemini_content["vrew_script"]
@@ -381,6 +386,31 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
 확인일: {today}
 """
         blog_post = blog_post[:3000]
+
+        tistory_post = f"""# {item.title} 핵심 정리: 지금 확인할 포인트
+
+## 이 뉴스가 주목받는 이유
+
+{article_context}
+
+## 핵심 포인트
+
+- 관련 흐름이 왜 지금 나타났는지 확인해야 합니다.
+- 실제 영향 범위가 어디까지 이어질지 살펴봐야 합니다.
+- 후속 발표, 시장 반응, 관계자 입장을 함께 확인하면 좋습니다.
+
+## 티스토리 독자를 위한 해설
+
+이번 이슈는 단순히 하나의 기사로 소비하기보다, 앞으로 이어질 변화의 방향을 보는 자료로 활용할 수 있습니다. 확인된 정보와 아직 확인되지 않은 정보를 구분해서 읽는 것이 중요합니다.
+
+## 마무리
+
+원문을 함께 확인하면서 숫자, 일정, 발언이 추가로 나오는지 살펴보면 더 깊이 있는 판단이 가능합니다.
+
+### 관련 태그
+
+#뉴스정리 #경제뉴스 #이슈분석 #AI #트렌드 #콘텐츠자동화
+"""
 
         thread_post = (
             f"놓치면 뒤늦게 알게 될 뉴스: {item.title} "
@@ -457,9 +487,10 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
         package_dir = draft_dir / f"{today}-{safe_title}"
         package_dir.mkdir(parents=True, exist_ok=True)
         (package_dir / "01-blog-post.md").write_text(blog_post, encoding="utf-8")
-        (package_dir / "02-thread-post.txt").write_text(thread_post, encoding="utf-8")
-        (package_dir / "03-youtube-slides.md").write_text(slide_script, encoding="utf-8")
-        (package_dir / "04-vrew-script.txt").write_text(vrew_script, encoding="utf-8")
+        (package_dir / "02-tistory-post.md").write_text(tistory_post, encoding="utf-8")
+        (package_dir / "03-thread-post.txt").write_text(thread_post, encoding="utf-8")
+        (package_dir / "04-youtube-slides.md").write_text(slide_script, encoding="utf-8")
+        (package_dir / "05-vrew-script.txt").write_text(vrew_script, encoding="utf-8")
         directory_text = str(package_dir)
     except OSError:
         # Cloud storage may be temporary or read-only; the package still goes into the email.
@@ -468,6 +499,7 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
     return ContentPackage(
         news_title=item.title,
         blog_post=blog_post,
+        tistory_post=tistory_post,
         thread_post=thread_post,
         slide_script=slide_script,
         vrew_script=vrew_script,
@@ -505,15 +537,18 @@ def build_email(
           <p style="color:#667085">선택 뉴스: {html.escape(content_package.news_title)}</p>
           <h3>1. 후킹형 블로그 글</h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.blog_post)}</pre>
-          <h3>2. 쓰레드 글</h3>
+          <h3>2. 티스토리용 각색 글</h3>
+          <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.tistory_post)}</pre>
+          <h3>3. 쓰레드 글</h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.thread_post)}</pre>
-          <h3>3. 유튜브 슬라이드 대본</h3>
+          <h3>4. 유튜브 슬라이드 대본</h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.slide_script)}</pre>
-          <h3>4. Vrew 대본</h3>
+          <h3>5. Vrew 대본</h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.vrew_script)}</pre>
         """
         package_plain = (
             f"\n\n[후킹형 블로그 글]\n{content_package.blog_post}"
+            f"\n\n[티스토리용 각색 글]\n{content_package.tistory_post}"
             f"\n\n[쓰레드 글]\n{content_package.thread_post}"
             f"\n\n[유튜브 슬라이드 대본]\n{content_package.slide_script}"
             f"\n\n[Vrew 대본]\n{content_package.vrew_script}"

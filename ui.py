@@ -72,7 +72,15 @@ def get_recent_draft(settings: dict) -> str:
     if not draft_dir.exists():
         return "콘텐츠 없음"
 
-    packages = sorted(draft_dir.iterdir(), key=lambda path: path.stat().st_mtime, reverse=True)
+    packages = sorted(
+        [
+            path
+            for path in draft_dir.iterdir()
+            if path.is_dir() and not path.name.endswith("news-content") and "테스트" not in path.name
+        ],
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
     if not packages:
         return "콘텐츠 없음"
 
@@ -85,7 +93,11 @@ def get_recent_content_package(settings: dict) -> Path | None:
         return None
 
     packages = sorted(
-        [path for path in draft_dir.iterdir() if path.is_dir()],
+        [
+            path
+            for path in draft_dir.iterdir()
+            if path.is_dir() and not path.name.endswith("news-content") and "테스트" not in path.name
+        ],
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
@@ -114,22 +126,26 @@ def show_content_viewer(settings: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    tab_blog, tab_thread, tab_youtube, tab_vrew = st.tabs(["블로그 글", "쓰레드", "유튜브 대본", "Vrew 대본"])
+    tab_blog, tab_tistory, tab_thread, tab_youtube, tab_vrew = st.tabs(
+        ["블로그 글", "티스토리 글", "쓰레드", "유튜브 대본", "Vrew 대본"]
+    )
     with tab_blog:
         st.markdown(read_text_if_exists(package_dir / "01-blog-post.md"))
+    with tab_tistory:
+        st.markdown(read_text_if_exists(package_dir / "02-tistory-post.md"))
     with tab_thread:
         st.text_area(
             "쓰레드 글",
-            value=read_text_if_exists(package_dir / "02-thread-post.txt"),
+            value=read_text_if_exists(package_dir / "03-thread-post.txt"),
             height=120,
             label_visibility="collapsed",
         )
     with tab_youtube:
-        st.markdown(read_text_if_exists(package_dir / "03-youtube-slides.md"))
+        st.markdown(read_text_if_exists(package_dir / "04-youtube-slides.md"))
     with tab_vrew:
         st.text_area(
             "Vrew 대본",
-            value=read_text_if_exists(package_dir / "04-vrew-script.txt"),
+            value=read_text_if_exists(package_dir / "05-vrew-script.txt"),
             height=360,
             label_visibility="collapsed",
         )
@@ -161,7 +177,7 @@ def run_news_now(settings: dict) -> None:
                 selected_text = f"{result.get('selected_index')}번째 뉴스"
                 if result.get("auto_selected"):
                     selected_text += "를 본문 기준으로 자동 선택"
-                st.success(f"{selected_text}로 블로그·쓰레드·유튜브·Vrew 콘텐츠 패키지도 만들었습니다.")
+                st.success(f"{selected_text}로 블로그·티스토리·쓰레드·유튜브·Vrew 콘텐츠 패키지도 만들었습니다.")
             elif result.get("content_message"):
                 st.warning(result["content_message"])
         else:
@@ -457,7 +473,7 @@ if menu == "대시보드":
     with col4:
         blog_status = "ON" if settings["blog_enabled"] else "OFF"
         pick_label = "본문 많은 뉴스 자동 선택" if int(settings.get("blog_pick_index", 0)) == 0 else f"{settings['blog_pick_index']}번째 뉴스로 4종 생성"
-        card("콘텐츠 패키지", blog_status, pick_label, "amber")
+        card("콘텐츠 패키지", blog_status, pick_label.replace("4종", "5종"), "amber")
 
     st.markdown('<div class="section-title">Quick Actions</div>', unsafe_allow_html=True)
     action1, action2, action3 = st.columns([1, 1, 2])
@@ -526,7 +542,7 @@ elif menu == "설정":
                 value=int(settings.get("content_candidate_limit", 10)),
                 disabled=(not blog_enabled) or (not auto_pick),
             )
-            st.caption("자동 선택을 켜면 뉴스 목록 중 본문/요약이 가장 많이 확보된 기사로 4종 콘텐츠를 만듭니다.")
+            st.caption("자동 선택을 켜면 뉴스 목록 중 본문/요약이 가장 많이 확보된 기사로 블로그, 티스토리, 쓰레드, 유튜브, Vrew 콘텐츠를 만듭니다.")
 
         with tab_guard:
             retry_count = st.number_input("실패 시 재시도 횟수", min_value=0, max_value=10, value=int(settings["retry_count"]))
