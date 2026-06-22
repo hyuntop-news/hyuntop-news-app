@@ -1,19 +1,33 @@
 import html
+import asyncio
 import json
 import os
+import re
+import shutil
 import subprocess
+import sys
+import wave
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
-from morning_news_mailer import run_mailer
+from morning_news_mailer import create_derivative_content_from_blog, create_youtube_pptx, load_env_file, run_mailer
 
 
 BASE_DIR = Path(__file__).resolve().parent
+VIDEO_VENDOR_DIR = BASE_DIR / "video_vendor"
+VENDOR_DIR = BASE_DIR / "vendor"
+if VIDEO_VENDOR_DIR.exists() and str(VIDEO_VENDOR_DIR) not in sys.path:
+    sys.path.insert(0, str(VIDEO_VENDOR_DIR))
+if VENDOR_DIR.exists() and str(VENDOR_DIR) not in sys.path:
+    sys.path.insert(0, str(VENDOR_DIR))
+
 SETTINGS_PATH = BASE_DIR / "settings.json"
 NEWS_SCRIPT = BASE_DIR / "Send-MorningNews.ps1"
 SCHEDULE_SCRIPT = BASE_DIR / "schedule_daily.ps1"
 LOG_PATH = BASE_DIR / "logs" / "morning-news.log"
+load_env_file()
 
 DEFAULT_SETTINGS = {
     "news_query": "과학",
@@ -78,7 +92,7 @@ def get_recent_draft(settings: dict) -> str:
             for path in draft_dir.iterdir()
             if path.is_dir() and not path.name.endswith("news-content") and "테스트" not in path.name
         ],
-        key=lambda path: path.stat().st_mtime,
+        key=content_package_mtime,
         reverse=True,
     )
     if not packages:
@@ -98,16 +112,459 @@ def get_recent_content_package(settings: dict) -> Path | None:
             for path in draft_dir.iterdir()
             if path.is_dir() and not path.name.endswith("news-content") and "테스트" not in path.name
         ],
-        key=lambda path: path.stat().st_mtime,
+        key=content_package_mtime,
         reverse=True,
     )
     return packages[0] if packages else None
+
+
+def content_package_mtime(path: Path) -> float:
+    content_files = [
+        path / "01-blog-post.md",
+        path / "02-tistory-post.md",
+        path / "03-thread-post.txt",
+        path / "04-youtube-slides.md",
+        path / "05-vrew-script.txt",
+        path / "06-youtube-slides.pptx",
+    ]
+    times = [file.stat().st_mtime for file in content_files if file.exists()]
+    times.append(path.stat().st_mtime)
+    return max(times)
 
 
 def read_text_if_exists(path: Path) -> str:
     if not path.exists():
         return "아직 저장된 내용이 없습니다."
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def extract_markdown_title(text: str, fallback: str) -> str:
+    for line in text.splitlines():
+        clean = line.strip()
+        if clean.startswith("#"):
+            return clean.lstrip("#").strip()[:90] or fallback
+    return fallback
+
+
+def parse_slide_headings(slide_text: str) -> list[str]:
+    headings = []
+    current = ""
+    for line in slide_text.splitlines():
+        clean = line.strip()
+        if clean.startswith("## 슬라이드"):
+            current = clean.lstrip("#").strip()
+        elif current and clean and clean not in {"화면 문구", "내레이션"}:
+            headings.append(f"{current}: {clean}")
+            current = ""
+    return headings[:6]
+
+
+def safe_video_name(name: str) -> str:
+    cleaned = re.sub(r'[\\/:*?"<>|]+', " ", name)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:60] or "youtube-video-package"
+
+
+def parse_slide_blocks_for_assets(slide_text: str) -> list[dict[str, str]]:
+    slides: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    mode = ""
+    for line in slide_text.splitlines():
+        clean = line.strip()
+        if not clean:
+            continue
+        if clean.startswith("## 슬라이드"):
+            if current:
+                slides.append(current)
+            current = {"title": clean.lstrip("# ").strip(), "screen": "", "narration": ""}
+            mode = ""
+        elif current and clean == "화면 문구":
+            mode = "screen"
+        elif current and clean == "내레이션":
+            mode = "narration"
+        elif current and mode == "screen":
+            current["screen"] = (current["screen"] + "\n" + clean).strip()
+        elif current and mode == "narration":
+            current["narration"] = (current["narration"] + "\n" + clean).strip()
+    if current:
+        slides.append(current)
+    return slides[:6]
+
+
+def wrap_text_by_width(draw, text: str, font, max_width: int) -> list[str]:
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        words = raw_line.split()
+        if not words:
+            lines.append("")
+            continue
+        line = ""
+        for word in words:
+            candidate = f"{line} {word}".strip()
+            width = draw.textbbox((0, 0), candidate, font=font)[2]
+            if width <= max_width:
+                line = candidate
+            else:
+                if line:
+                    lines.append(line)
+                line = word
+        if line:
+            lines.append(line)
+    return lines
+
+
+def create_slide_images(slide_text: str, output_dir: Path) -> list[Path]:
+    from PIL import Image, ImageDraw, ImageFont
+
+    slides = parse_slide_blocks_for_assets(slide_text)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    font_path = Path("C:/Windows/Fonts/malgun.ttf")
+    bold_path = Path("C:/Windows/Fonts/malgunbd.ttf")
+    title_font = ImageFont.truetype(str(bold_path if bold_path.exists() else font_path), 54)
+    body_font = ImageFont.truetype(str(font_path), 34)
+    small_font = ImageFont.truetype(str(font_path), 22)
+
+    image_paths: list[Path] = []
+    for index, slide in enumerate(slides, 1):
+        image = Image.new("RGB", (1280, 720), "#050A18")
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((54, 48, 1226, 116), radius=18, fill="#111827", outline="#22D3EE", width=2)
+        draw.text((84, 67), slide["title"], font=small_font, fill="#E0F2FE")
+
+        screen_lines = wrap_text_by_width(draw, slide["screen"], title_font, 1060)
+        y = 170
+        for line in screen_lines[:4]:
+            draw.text((84, y), line, font=title_font, fill="#F8FAFC")
+            y += 70
+
+        draw.rounded_rectangle((84, 450, 1196, 642), radius=24, fill="#0F172A", outline="#334155", width=2)
+        draw.text((116, 474), "내레이션", font=small_font, fill="#22D3EE")
+        narration_lines = wrap_text_by_width(draw, slide["narration"], body_font, 1000)
+        y = 512
+        for line in narration_lines[:3]:
+            draw.text((116, y), line, font=body_font, fill="#CBD5E1")
+            y += 42
+
+        draw.text((84, 676), "HYUNTOP NEWS", font=small_font, fill="#64748B")
+        output_path = output_dir / f"slide_{index:02}.png"
+        image.save(output_path)
+        image_paths.append(output_path)
+    return image_paths
+
+
+def create_video_package(package_dir: Path) -> Path:
+    blog_text = read_text_if_exists(package_dir / "01-blog-post.md")
+    slide_text = read_text_if_exists(package_dir / "04-youtube-slides.md")
+    vrew_text = read_text_if_exists(package_dir / "05-vrew-script.txt")
+    title = extract_markdown_title(blog_text, package_dir.name)
+    short_title = title.replace("지금 놓치면 뒤늦게 알게 됩니다:", "").strip(" -")
+    package_name = safe_video_name(short_title)
+
+    video_dir = package_dir / "video_package"
+    video_dir.mkdir(parents=True, exist_ok=True)
+    slide_image_dir = video_dir / "slide_images"
+    create_slide_images(slide_text, slide_image_dir)
+
+    files_to_copy = {
+        "youtube-slides.pptx": package_dir / "06-youtube-slides.pptx",
+        "youtube-slides.md": package_dir / "04-youtube-slides.md",
+        "vrew-script.txt": package_dir / "05-vrew-script.txt",
+        "blog-post.md": package_dir / "01-blog-post.md",
+        "tistory-post.md": package_dir / "02-tistory-post.md",
+    }
+    for output_name, source in files_to_copy.items():
+        if source.exists():
+            shutil.copy2(source, video_dir / output_name)
+
+    slide_lines = parse_slide_headings(slide_text)
+    chapters = "\n".join(f"{index - 1}:00 {line}" for index, line in enumerate(slide_lines, start=1))
+    if not chapters:
+        chapters = "0:00 오프닝\n0:30 핵심 내용\n1:00 마무리"
+
+    upload_info = f"""# 유튜브 업로드 패키지
+
+## 제목 후보
+1. {short_title}
+2. 지금 놓치면 늦는 뉴스: {short_title}
+3. 한눈에 보는 오늘의 핵심 이슈
+4. 뉴스가 말해주는 다음 변화
+5. 이 흐름을 지금 봐야 하는 이유
+
+## 설명란 초안
+오늘 영상에서는 아래 뉴스를 바탕으로 핵심 흐름을 빠르게 정리합니다.
+
+{short_title}
+
+원문과 관련 정보를 함께 확인하면서, 이 이슈가 왜 중요한지와 앞으로 무엇을 봐야 하는지 살펴봅니다.
+
+## 챕터
+{chapters}
+
+## 해시태그
+#뉴스정리 #경제뉴스 #오늘의뉴스 #이슈분석 #유튜브쇼츠 #시사뉴스 #트렌드
+"""
+
+    thumbnail_text = f"""# 썸네일 문구 후보
+
+1. 지금 놓치면 늦습니다
+2. 이 뉴스가 중요한 이유
+3. 조용히 바뀌는 흐름
+4. 한눈에 보는 핵심 변화
+5. 앞으로 더 중요해질 이슈
+6. {short_title[:22]}
+"""
+
+    checklist = """# 영상 제작 체크리스트
+
+## Vrew 작업
+- vrew-script.txt 열기
+- Vrew에 대본 붙여넣기
+- AI 음성 선택
+- 자막 자동 생성 확인
+
+## 슬라이드 작업
+- youtube-slides.pptx 열기
+- 슬라이드 1~6 확인
+- 필요하면 이미지나 아이콘 추가
+- Vrew 또는 편집툴에 슬라이드 삽입
+
+## 업로드 전 확인
+- 제목 후보 중 하나 선택
+- 설명란 붙여넣기
+- 해시태그 확인
+- 썸네일 문구 선택
+- 저작권 문제 없는 이미지/음원 사용
+"""
+
+    (video_dir / "upload-info.md").write_text(upload_info, encoding="utf-8")
+    (video_dir / "thumbnail-copy.md").write_text(thumbnail_text, encoding="utf-8")
+    (video_dir / "production-checklist.md").write_text(checklist, encoding="utf-8")
+
+    zip_path = package_dir / f"{package_name}-video-package.zip"
+    if zip_path.exists():
+        zip_path.unlink()
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file_path in video_dir.rglob("*"):
+            if file_path.is_file():
+                archive.write(file_path, file_path.relative_to(video_dir))
+    return zip_path
+
+
+def write_wave_file(output_path: Path, pcm: bytes, channels: int = 1, rate: int = 24000, sample_width: int = 2) -> None:
+    with wave.open(str(output_path), "wb") as wave_file:
+        wave_file.setnchannels(channels)
+        wave_file.setsampwidth(sample_width)
+        wave_file.setframerate(rate)
+        wave_file.writeframes(pcm)
+
+
+def create_google_tts_audio(text: str, output_path: Path) -> bool:
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return False
+
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        model = os.getenv("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview").strip()
+        voice_name = os.getenv("GEMINI_TTS_VOICE", "Kore").strip()
+        prompt = (
+            "다음 한국어 뉴스 영상 내레이션을 차분하고 신뢰감 있는 톤으로 읽어줘. "
+            "문장 사이에는 자연스럽게 짧게 쉬어줘.\n\n"
+            f"{text}"
+        )
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
+                    )
+                ),
+            ),
+        )
+        audio_data = response.candidates[0].content.parts[0].inline_data.data
+        if isinstance(audio_data, str):
+            import base64
+
+            audio_data = base64.b64decode(audio_data)
+        write_wave_file(output_path, audio_data)
+        return True
+    except Exception:
+        return False
+
+
+async def create_tts_audio(text: str, output_path: Path, voice: str = "ko-KR-SunHiNeural") -> None:
+    if create_google_tts_audio(text, output_path):
+        return
+
+    text_path = output_path.with_suffix(".tts.txt")
+    script_path = output_path.with_suffix(".tts.ps1")
+    text_path.write_text(text, encoding="utf-8")
+    script_path.write_text(
+        """
+param(
+    [string]$TextPath,
+    [string]$OutputPath
+)
+Add-Type -AssemblyName System.Speech
+$text = Get-Content -LiteralPath $TextPath -Raw -Encoding UTF8
+$speaker = New-Object System.Speech.Synthesis.SpeechSynthesizer
+$speaker.Rate = 0
+$speaker.Volume = 100
+$speaker.SetOutputToWaveFile($OutputPath)
+$speaker.Speak($text)
+$speaker.Dispose()
+""".strip(),
+        encoding="utf-8",
+    )
+    try:
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script_path),
+                str(text_path),
+                str(output_path),
+            ],
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            message = result.stderr.strip() or result.stdout.strip() or "음성 파일을 만들지 못했습니다."
+            raise RuntimeError(message[-1200:])
+    finally:
+        text_path.unlink(missing_ok=True)
+        script_path.unlink(missing_ok=True)
+
+
+def run_command(command: list[str]) -> None:
+    result = subprocess.run(command, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=300)
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip() or "영상 생성 명령이 실패했습니다."
+        raise RuntimeError(message[-1200:])
+
+
+def get_ffmpeg_path() -> str:
+    simple_ffmpeg = BASE_DIR / "ffmpeg_tools" / "ffmpeg.exe"
+    if simple_ffmpeg.exists():
+        return str(simple_ffmpeg)
+
+    for vendor_dir in (VIDEO_VENDOR_DIR, VENDOR_DIR):
+        binaries_dir = vendor_dir / "imageio_ffmpeg" / "binaries"
+        if binaries_dir.exists():
+            for path in binaries_dir.glob("ffmpeg*.exe"):
+                if path.exists():
+                    return str(path)
+
+    try:
+        from imageio_ffmpeg import get_ffmpeg_exe
+
+        ffmpeg_path = get_ffmpeg_exe()
+        if Path(ffmpeg_path).exists():
+            return ffmpeg_path
+    except Exception:
+        pass
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        return ffmpeg_path
+
+    checked_paths = [
+        str(VIDEO_VENDOR_DIR / "imageio_ffmpeg" / "binaries"),
+        str(VENDOR_DIR / "imageio_ffmpeg" / "binaries"),
+    ]
+    raise RuntimeError(
+        "ffmpeg 실행 파일을 찾지 못했습니다. 현재 실행 폴더: "
+        f"{BASE_DIR} / 확인한 위치: {' | '.join(checked_paths)}"
+    )
+
+
+def create_mp4_video(package_dir: Path) -> Path:
+
+    slide_text = read_text_if_exists(package_dir / "04-youtube-slides.md")
+    slides = parse_slide_blocks_for_assets(slide_text)
+    if not slides:
+        raise RuntimeError("유튜브 슬라이드 대본을 찾지 못했습니다. 먼저 콘텐츠 패키지를 생성하세요.")
+
+    create_video_package(package_dir)
+    video_dir = package_dir / "video_package"
+    slide_image_dir = video_dir / "slide_images"
+    audio_dir = video_dir / "audio"
+    clip_dir = video_dir / "clips"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    clip_dir.mkdir(parents=True, exist_ok=True)
+
+    ffmpeg = get_ffmpeg_path()
+    clip_paths: list[Path] = []
+
+    for index, slide in enumerate(slides, 1):
+        image_path = slide_image_dir / f"slide_{index:02}.png"
+        audio_path = audio_dir / f"slide_{index:02}.wav"
+        clip_path = clip_dir / f"clip_{index:02}.mp4"
+        narration = slide.get("narration", "").strip() or slide.get("screen", "").strip() or "다음 내용을 확인해 보겠습니다."
+
+        if not audio_path.exists():
+            asyncio.run(create_tts_audio(narration, audio_path))
+
+        run_command(
+            [
+                ffmpeg,
+                "-y",
+                "-loop",
+                "1",
+                "-i",
+                str(image_path),
+                "-i",
+                str(audio_path),
+                "-c:v",
+                "libx264",
+                "-tune",
+                "stillimage",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-pix_fmt",
+                "yuv420p",
+                "-shortest",
+                str(clip_path),
+            ]
+        )
+        clip_paths.append(clip_path)
+
+    concat_path = video_dir / "concat-list.txt"
+    concat_path.write_text(
+        "\n".join(f"file '{clip_path.as_posix()}'" for clip_path in clip_paths),
+        encoding="utf-8",
+    )
+    final_video = video_dir / "final-video.mp4"
+    run_command(
+        [
+            ffmpeg,
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_path),
+            "-c",
+            "copy",
+            str(final_video),
+        ]
+    )
+    return final_video
 
 
 def show_content_viewer(settings: dict) -> None:
@@ -133,25 +590,57 @@ def show_content_viewer(settings: dict) -> None:
         "유튜브 대본": "04-youtube-slides.md",
         "PPTX": "06-youtube-slides.pptx",
         "Vrew 대본": "05-vrew-script.txt",
+        "영상 제작": "",
     }
     selected_content = st.session_state.get("content_view", "블로그 글")
     if selected_content not in content_menu:
         selected_content = "블로그 글"
 
-    if selected_content == "쓰레드":
-        st.text_area(
-            "쓰레드 글",
-            value=read_text_if_exists(package_dir / content_menu[selected_content]),
-            height=140,
+    editable_labels = {"블로그 글", "티스토리 글", "쓰레드", "유튜브 대본", "Vrew 대본"}
+
+    if selected_content in editable_labels:
+        file_path = package_dir / content_menu[selected_content]
+        current_text = read_text_if_exists(file_path)
+        editor_height = 160 if selected_content == "쓰레드" else 560
+        file_version = int(file_path.stat().st_mtime) if file_path.exists() else 0
+        edited_text = st.text_area(
+            selected_content,
+            value=current_text,
+            height=editor_height,
             label_visibility="collapsed",
+            key=f"editor_{package_dir.name}_{selected_content}_{file_version}",
         )
-    elif selected_content == "Vrew 대본":
-        st.text_area(
-            "Vrew 대본",
-            value=read_text_if_exists(package_dir / content_menu[selected_content]),
-            height=520,
-            label_visibility="collapsed",
-        )
+        col_save, col_hint = st.columns([1, 2])
+        with col_save:
+            if st.button("수정 내용 저장", use_container_width=True, key=f"save_{selected_content}"):
+                file_path.write_text(edited_text, encoding="utf-8")
+                st.success("저장했습니다. 영상은 다시 만들면 수정 내용이 반영됩니다.")
+        with col_hint:
+            if selected_content in {"유튜브 대본", "Vrew 대본"}:
+                st.info("대본을 고친 뒤에는 영상 제작 패키지나 MP4를 다시 만들어야 반영됩니다.")
+            else:
+                st.info("여기서 바로 고치고 저장할 수 있습니다.")
+        if selected_content == "블로그 글":
+            st.divider()
+            st.caption("블로그 글을 충분히 보강한 뒤 아래 버튼을 누르면 티스토리·쓰레드·유튜브·Vrew·PPTX를 다시 만듭니다.")
+            if st.button("블로그 글 기준으로 전체 다시 만들기", use_container_width=True):
+                file_path.write_text(edited_text, encoding="utf-8")
+                derivatives = create_derivative_content_from_blog(
+                    edited_text,
+                    title=package_dir.name,
+                    source="블로그 글 직접 수정",
+                )
+                (package_dir / "02-tistory-post.md").write_text(derivatives["tistory_post"], encoding="utf-8")
+                (package_dir / "03-thread-post.txt").write_text(derivatives["thread_post"], encoding="utf-8")
+                (package_dir / "04-youtube-slides.md").write_text(derivatives["slide_script"], encoding="utf-8")
+                (package_dir / "05-vrew-script.txt").write_text(derivatives["vrew_script"], encoding="utf-8")
+                create_youtube_pptx(derivatives["slide_script"], package_dir / "06-youtube-slides.pptx", package_dir.name)
+                shutil.rmtree(package_dir / "video_package", ignore_errors=True)
+                for old_zip in package_dir.glob("*-video-package.zip"):
+                    old_zip.unlink(missing_ok=True)
+                st.session_state.pop("video_package_zip", None)
+                st.session_state.pop("mp4_video_path", None)
+                st.success("블로그 글 기준으로 나머지 콘텐츠를 다시 만들었습니다. 영상은 MP4를 다시 만들면 됩니다.")
     elif selected_content == "PPTX":
         pptx_path = package_dir / content_menu[selected_content]
         if pptx_path.exists():
@@ -165,8 +654,49 @@ def show_content_viewer(settings: dict) -> None:
             st.caption("대본의 슬라이드 1~6 순서대로 PPTX 6장이 생성됩니다.")
         else:
             st.info("아직 PPTX 파일이 없습니다. 새로 '지금 테스트 실행'을 누르면 생성됩니다.")
-    else:
-        st.markdown(read_text_if_exists(package_dir / content_menu[selected_content]))
+    elif selected_content == "영상 제작":
+        st.markdown("### 영상 제작 패키지")
+        st.caption("PPTX, Vrew 대본, 업로드 제목/설명/해시태그, 썸네일 문구, 제작 체크리스트를 ZIP으로 묶습니다.")
+        if st.button("영상 제작 패키지 만들기", use_container_width=True):
+            zip_path = create_video_package(package_dir)
+            st.session_state["video_package_zip"] = str(zip_path)
+            st.success("영상 제작 패키지를 만들었습니다.")
+
+        zip_path_text = st.session_state.get("video_package_zip", "")
+        zip_path = Path(zip_path_text) if zip_path_text else next(package_dir.glob("*-video-package.zip"), None)
+        if zip_path and zip_path.exists():
+            st.download_button(
+                "영상 제작 패키지 ZIP 다운로드",
+                data=zip_path.read_bytes(),
+                file_name=zip_path.name,
+                mime="application/zip",
+                use_container_width=True,
+            )
+            st.info("ZIP 안의 upload-info.md, thumbnail-copy.md, production-checklist.md를 순서대로 확인하세요.")
+        else:
+            st.info("아직 영상 제작 패키지가 없습니다. 위 버튼을 눌러 생성하세요.")
+
+        st.divider()
+        st.markdown("### MP4 자동 생성")
+        st.caption("슬라이드 이미지 6장과 Edge TTS 한국어 음성을 합쳐 final-video.mp4를 만듭니다.")
+        if st.button("MP4 영상 만들기", use_container_width=True):
+            try:
+                mp4_path = create_mp4_video(package_dir)
+                st.session_state["mp4_video_path"] = str(mp4_path)
+                st.success("MP4 영상을 만들었습니다.")
+            except Exception as exc:
+                st.error(f"MP4 생성 중 오류가 발생했습니다: {exc}")
+
+        mp4_path_text = st.session_state.get("mp4_video_path", "")
+        mp4_path = Path(mp4_path_text) if mp4_path_text else package_dir / "video_package" / "final-video.mp4"
+        if mp4_path.exists():
+            st.download_button(
+                "MP4 영상 다운로드",
+                data=mp4_path.read_bytes(),
+                file_name=mp4_path.name,
+                mime="video/mp4",
+                use_container_width=True,
+            )
 
 
 def show_result(result: subprocess.CompletedProcess[str]) -> None:
@@ -464,7 +994,7 @@ with st.sidebar:
         st.markdown('<div class="sidebar-subtitle">저장 콘텐츠</div>', unsafe_allow_html=True)
         st.radio(
             "저장 콘텐츠",
-            ["블로그 글", "티스토리 글", "쓰레드", "유튜브 대본", "PPTX", "Vrew 대본"],
+            ["블로그 글", "티스토리 글", "쓰레드", "유튜브 대본", "PPTX", "Vrew 대본", "영상 제작"],
             key="content_view",
             label_visibility="collapsed",
         )

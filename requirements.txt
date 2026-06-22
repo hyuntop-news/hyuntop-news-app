@@ -2,3 +2,5 @@ streamlit==1.57.0
 google-genai
 trafilatura
 python-pptx
+edge-tts
+imageio-ffmpeg
