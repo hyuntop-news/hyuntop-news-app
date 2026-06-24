@@ -18,10 +18,6 @@ from morning_news_mailer import create_derivative_content_from_blog, create_yout
 BASE_DIR = Path(__file__).resolve().parent
 VIDEO_VENDOR_DIR = BASE_DIR / "video_vendor"
 VENDOR_DIR = BASE_DIR / "vendor"
-if VIDEO_VENDOR_DIR.exists() and str(VIDEO_VENDOR_DIR) not in sys.path:
-    sys.path.insert(0, str(VIDEO_VENDOR_DIR))
-if VENDOR_DIR.exists() and str(VENDOR_DIR) not in sys.path:
-    sys.path.insert(0, str(VENDOR_DIR))
 
 SETTINGS_PATH = BASE_DIR / "settings.json"
 NEWS_SCRIPT = BASE_DIR / "Send-MorningNews.ps1"

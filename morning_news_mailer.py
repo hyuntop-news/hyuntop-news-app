@@ -19,6 +19,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 SETTINGS_PATH = BASE_DIR / "settings.json"
 DEFAULT_FEED_URL = "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko"
+LAST_GEMINI_ERROR = ""
 
 
 @dataclass
@@ -169,13 +170,90 @@ def extract_json_object(value: str) -> dict:
         text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
         text = re.sub(r"```$", "", text).strip()
 
+    def remove_bad_control_chars(raw: str) -> str:
+        return "".join(
+            char
+            for char in raw
+            if char in "\n\r\t" or ord(char) >= 32
+        )
+
+    def escape_string_newlines(raw: str) -> str:
+        result: list[str] = []
+        in_string = False
+        escaped = False
+        for char in raw:
+            if escaped:
+                result.append(char)
+                escaped = False
+                continue
+            if char == "\\":
+                result.append(char)
+                escaped = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                result.append(char)
+                continue
+            if in_string and char in "\n\r":
+                result.append("\\n")
+                continue
+            if in_string and char == "\t":
+                result.append("\\t")
+                continue
+            result.append(char)
+        return "".join(result)
+
+    def loads_lenient(raw: str) -> dict:
+        cleaned = remove_bad_control_chars(raw).strip()
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            return json.loads(escape_string_newlines(cleaned))
+
     try:
-        return json.loads(text)
+        return loads_lenient(text)
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", text, flags=re.DOTALL)
         if not match:
             raise
-        return json.loads(match.group(0))
+        return loads_lenient(match.group(0))
+
+
+def format_tistory_post(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return ""
+
+    lines = [line.strip() for line in text.splitlines()]
+    formatted: list[str] = []
+    for line in lines:
+        if not line:
+            if formatted and formatted[-1] != "":
+                formatted.append("")
+            continue
+
+        is_heading = line.startswith("#") or re.match(r"^\d+\.\s+", line)
+        is_list = line.startswith(("- ", "* ", "[ ]", "- [ ]"))
+
+        if is_heading and formatted and formatted[-1] != "":
+            formatted.append("")
+        formatted.append(line)
+        if is_heading:
+            formatted.append("")
+
+    text = "\n".join(formatted)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    if "\n\n" not in text and len(text) > 700:
+        sentences = re.split(r"(?<=[.!?。]|[다요죠까니다습니다])\s+", text)
+        chunks: list[str] = []
+        for index in range(0, len(sentences), 3):
+            chunk = " ".join(sentence.strip() for sentence in sentences[index:index + 3] if sentence.strip())
+            if chunk:
+                chunks.append(chunk)
+        text = "\n\n".join(chunks)
+
+    return text
 
 
 def create_grounded_article_context(item: NewsItem, article_context: str) -> str:
@@ -235,66 +313,80 @@ Required structure:
 
 
 def create_gemini_content(item: NewsItem, article_context: str, use_grounding: bool = False) -> dict | None:
+    global LAST_GEMINI_ERROR
+    LAST_GEMINI_ERROR = ""
     api_key = get_secret("GEMINI_API_KEY")
     if not api_key:
+        LAST_GEMINI_ERROR = "GEMINI_API_KEY가 없습니다."
         return None
 
     try:
         from google import genai
         from google.genai import types
-    except Exception:
+    except Exception as exc:
+        LAST_GEMINI_ERROR = f"Gemini 패키지를 불러오지 못했습니다: {exc}"
         return None
 
     model = get_secret("GEMINI_MODEL") or "gemini-2.5-pro"
     prompt = f"""
-너는 한국어 블로그 작가다.
-뉴스를 '요약 보고서'가 아니라 사람들이 끝까지 읽는 블로그 글로 각색한다.
-아래 기사 정보는 글감이다. 기사 내용을 그대로 옮기지 말고, 독자가 흥미를 느끼는 이야기형 블로그 글로 재구성하라.
+You are a Korean blog columnist for 50s and 60s readers.
+Write the final content in Korean.
+Do not write a report, checklist-only memo, or plain news summary. Turn the news topic into a practical Korean blog column.
 
-블로그 글 작성 원칙:
-- 첫 제목은 클릭하고 싶게 쓰되 과장 광고처럼 쓰지 마라.
-- 첫 문단은 장면, 질문, 반전, 불안, 생활 체감 중 하나로 독자를 붙잡아라.
-- "기사에서 확인한 내용", "정보가 부족합니다", "원문 확인 필요", "자동 수집" 같은 표현은 blog_post 본문에 쓰지 마라.
-- 본문은 사건 설명보다 '왜 이 일이 중요한지', '독자에게 어떤 의미인지', '앞으로 무엇을 봐야 하는지'를 중심으로 풀어라.
-- 확인되지 않은 구체 숫자, 직접 발언, 일정, 기업명, 정책명은 지어내지 마라.
-- 일반적인 배경지식, 경제/사회적 맥락, 가능한 시나리오, 독자의 생활과 연결되는 해설은 적극적으로 덧붙여라.
-- 문체는 블로그 작가처럼 자연스럽게 써라. 딱딱한 정책 보고서 말투를 피하고, 문단마다 읽는 맛이 있어야 한다.
-- 소제목은 감정과 궁금증이 살아 있게 써라. 예: "경제는 숫자보다 먼저 거리에서 멈춘다", "비상사태가 무서운 진짜 이유"
-- 마지막은 독자가 생각할 질문이나 관찰 포인트로 마무리하라.
+Most important rules for blog_post:
+- Write a complete Korean blog post of 2800 to 3500 Korean characters.
+- Use the style of a practical 5060 money/life strategy blog.
+- Start with a strong title like "[핵심 키워드] 지금 준비해야 할 이유".
+- Opening should directly tell readers why this issue matters to their money, retirement, work, household budget, or future choices.
+- Use numbered sections, for example "1. 뉴스 핵심", "2. 왜 중요한가", "3. 시장과 생활에 미칠 영향", "4. 앞으로 볼 포인트", "5. 체크리스트".
+- Do not include fictional case studies or hypothetical personal examples unless the article itself provides them.
+- Include a checklist near the end with 4 to 6 action items.
+- End with a conclusion and a short "다음에 확인할 것" preview.
+- If article text is limited, do not mention that limitation to readers. Use the title, source, verified context, and general background to write a useful blog-style interpretation.
+- Never use these phrases in blog_post: "???? ??? ??", "??? ??", "?? ??", "?? ??", "??? ??", "???? ???", "?? ??".
+- Do not invent exact numbers, quotes, schedules, company names, or policy names that are not provided.
+- The writing should be confident, practical, and easy to read. Avoid vague filler such as "지켜봐야 합니다" repeated too often.
 
-출력은 반드시 JSON 객체 하나만 반환하라.
-키는 blog_post, tistory_post, thread_post, slide_script, vrew_script 다섯 개만 사용하라.
+Return only one valid JSON object. Use exactly these keys:
+blog_post, tistory_post, thread_post, slide_script, vrew_script
 
-조건:
-- blog_post: 반드시 3300자 이상 4500자 이내. 블로그 게시용 완성 원고. 제목 포함. 기사 설명 20%, 스토리텔링/해설/배경/전망/독자 관점 80% 비율
-- tistory_post: blog_post를 티스토리 블로그용으로 다시 각색. 검색 유입용 제목, 자연스러운 도입, H2/H3 소제목, 목록, 마무리, 관련 태그 5~8개 포함
-- thread_post: 280~330자, SNS 첫 글처럼 흥미롭게 작성
-- slide_script: 유튜브 제작용 슬라이드 6장 구성. 반드시 "## 슬라이드 1."부터 "## 슬라이드 6."까지 위에서 아래로 순서대로 작성하고, 각 장마다 "- 화면 문구:"와 "- 내레이션:"을 포함
-- vrew_script: Vrew에 붙여넣기 좋은 장면별 내레이션 대본. 반드시 "## 슬라이드 1."부터 "## 슬라이드 6."까지 위에서 아래로 순서대로 작성
+Requirements:
+- blog_post: 2800 to 3500 Korean characters, news commentary blog article with numbered sections and checklist.
+- tistory_post: adapt blog_post for Tistory with SEO-friendly title, H2/H3 headings, conclusion, and 5 to 8 tags.
+  Format it for easy reading on Tistory:
+  use Markdown headings, put one blank line after every heading,
+  split long text into short paragraphs of 2 to 4 sentences,
+  put one blank line between all paragraphs,
+  use bullet/checklist lines on separate lines,
+  never write sections as one long connected block.
+- thread_post: 250 to 330 Korean characters, like a first social media post.
+- slide_script: 6 YouTube slides. Use "## ???? 1." through "## ???? 6." in order. Each slide must include "- ?? ??:" and "- ????:".
+- vrew_script: 6 scene narration script. Use "## ???? 1." through "## ???? 6." in order.
 
-뉴스 제목:
+News title:
 {item.title}
 
-출처:
+Source:
 {item.source}
 
-원문 링크:
+Original link:
 {item.link}
 
-수집된 기사 내용:
+Collected article context:
 {article_context}
 """
 
-    try:
-        client = genai.Client(api_key=api_key)
-        if use_grounding:
+    client = genai.Client(api_key=api_key)
+
+    def request_content(with_grounding: bool):
+        if with_grounding:
             grounding_tool = types.Tool(google_search=types.GoogleSearch())
-            response = client.models.generate_content(
+            return client.models.generate_content(
                 model=model,
                 contents=(
                     prompt
                     + "\n\nAdditional instruction: Use Google Search grounding to verify and enrich the context before writing. "
-                    "Then write it as a polished Korean blog article, not a report or summary. "
+                    "Then write it as a practical news commentary blog column with numbered sections, a reader checklist, and a closing preview. "
                     "Keep the final JSON in Korean."
                 ),
                 config=types.GenerateContentConfig(
@@ -303,29 +395,54 @@ def create_gemini_content(item: NewsItem, article_context: str, use_grounding: b
                     max_output_tokens=8192,
                 ),
             )
-        else:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.85,
-                    max_output_tokens=8192,
-                ),
-            )
+        return client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.85,
+                max_output_tokens=8192,
+            ),
+        )
+
+    try:
+        try:
+            response = request_content(use_grounding)
+        except Exception as grounding_exc:
+            if not use_grounding:
+                raise
+            LAST_GEMINI_ERROR = f"Google Search grounding 실패, 일반 Gemini로 재시도했습니다: {grounding_exc}"
+            response = request_content(False)
         data = extract_json_object(response.text)
-    except Exception:
+    except Exception as exc:
+        LAST_GEMINI_ERROR = f"Gemini 생성 실패: {exc}"
         return None
 
-    blog_post = str(data.get("blog_post", "")).strip()[:4500]
-    tistory_post = str(data.get("tistory_post", "")).strip()[:4500]
+    blog_post = str(data.get("blog_post", "")).strip()[:4200]
+    tistory_post = format_tistory_post(str(data.get("tistory_post", "")).strip())[:4500]
     thread_post = ensure_thread_length(str(data.get("thread_post", "")).strip(), item.title, article_context)
     slide_script = str(data.get("slide_script", "")).strip()
     vrew_script = str(data.get("vrew_script", "")).strip()
 
-    if len(blog_post) < 3000:
+    if len(blog_post) < 2500:
+        LAST_GEMINI_ERROR = f"Gemini 응답이 너무 짧습니다: {len(blog_post)}자"
+        return None
+
+    forbidden_blog_phrases = [
+        "기사에서 확인한 내용",
+        "정보가 부족",
+        "원문 확인",
+        "자동 수집",
+        "확인된 범위",
+        "보강해야 합니다",
+        "구체적인 수치",
+        "기사 본문",
+    ]
+    if any(phrase in blog_post for phrase in forbidden_blog_phrases):
+        LAST_GEMINI_ERROR = "Gemini가 블로그 글 대신 보고서식 문장을 만들었습니다."
         return None
 
     if not all([blog_post, tistory_post, thread_post, slide_script, vrew_script]):
+        LAST_GEMINI_ERROR = "Gemini 응답에서 필요한 항목 일부가 비어 있습니다."
         return None
 
     return {
@@ -363,7 +480,10 @@ def create_derivative_content_from_blog(
 키는 tistory_post, thread_post, slide_script, vrew_script 네 개만 사용하라.
 
 조건:
-- tistory_post: 티스토리 블로그용 각색 글. 검색 유입용 제목, 자연스러운 도입, H2/H3 소제목, 목록, 마무리, 관련 태그 5~8개 포함
+- tistory_post: 티스토리 블로그용 각색 글. 검색 유입용 제목, 자연스러운 도입, H2/H3 소제목, 목록, 마무리, 관련 태그 5~8개 포함.
+  티스토리에서 읽기 좋게 제목과 소제목 뒤에는 반드시 빈 줄을 넣고, 긴 문장은 2~4문장 단위의 짧은 문단으로 나누어라.
+  모든 문단 사이에는 빈 줄을 하나 넣어라.
+  체크리스트와 목록은 한 줄에 하나씩 쓰고, 글 전체를 절대 한 덩어리로 이어 쓰지 마라.
 - thread_post: 280~330자, SNS 첫 글처럼 궁금증을 만들 것
 - slide_script: 유튜브 제작용 슬라이드 6장 구성. 반드시 "## 슬라이드 1."부터 "## 슬라이드 6."까지 위에서 아래로 순서대로 작성하고, 각 장마다 "- 화면 문구:"와 "- 내레이션:" 포함. 화면 문구는 짧고 강하게
 - vrew_script: Vrew에 붙여넣기 좋은 자연스러운 말투의 장면별 내레이션 대본. 반드시 "## 슬라이드 1."부터 "## 슬라이드 6."까지 위에서 아래로 순서대로 작성
@@ -384,7 +504,7 @@ def create_derivative_content_from_blog(
             response = client.models.generate_content(model=model, contents=prompt)
             raw_data = extract_json_object(response.text)
             data = {
-                "tistory_post": str(raw_data.get("tistory_post", "")).strip()[:4500],
+                "tistory_post": format_tistory_post(str(raw_data.get("tistory_post", "")).strip())[:4500],
                 "thread_post": ensure_thread_length(str(raw_data.get("thread_post", "")).strip(), title, blog_post),
                 "slide_script": str(raw_data.get("slide_script", "")).strip(),
                 "vrew_script": str(raw_data.get("vrew_script", "")).strip(),
@@ -400,7 +520,7 @@ def create_derivative_content_from_blog(
     data["slide_script"] = format_slide_script(slide_blocks, source, link)
     data["vrew_script"] = format_vrew_script(slide_blocks, source)
     data["thread_post"] = ensure_thread_length(data["thread_post"], title, blog_post)
-    data["tistory_post"] = data["tistory_post"][:4500]
+    data["tistory_post"] = format_tistory_post(data["tistory_post"])[:4500]
     return data
 
 
@@ -485,8 +605,113 @@ def fallback_derivative_content_from_blog(blog_post: str, item: NewsItem) -> dic
 - 내레이션: 오늘 내용이 도움이 되셨다면 다음 흐름도 함께 확인해 보세요.
 """
     return {
-        "tistory_post": tistory_post[:4500],
+        "tistory_post": format_tistory_post(tistory_post)[:4500],
         "thread_post": ensure_thread_length(thread_post, title, blog_post),
+        "slide_script": slide_script,
+        "vrew_script": slide_script,
+    }
+
+
+def create_local_content_package_data(item: NewsItem, article_context: str, today: str) -> dict[str, str]:
+    title = item.title.strip() or "오늘의 주요 뉴스"
+    source = item.source.strip() or "뉴스"
+    link = item.link.strip()
+    context = " ".join((article_context or item.summary or "").split())
+    blocked_context_fragments = [
+        "기사 본문 전문은 제공되지 않았다",
+        "이 사실을 독자에게 설명하지 말고",
+        "뉴스 제목과 출처를 글감으로 삼아",
+        "관련 배경과 독자 관점의 해설",
+    ]
+    if any(fragment in context for fragment in blocked_context_fragments):
+        context = ""
+    if not context:
+        context = (
+            f"{title} 이슈는 정책, 산업, 시장 분위기와 연결될 수 있는 소식입니다. "
+            "지금은 단정적인 결론보다 배경과 앞으로의 흐름을 차분히 보는 것이 중요합니다."
+        )
+
+    blog_post = f"""# {title}을 그냥 넘기면 안 되는 이유
+
+뉴스를 볼 때 가장 아쉬운 순간은 제목만 보고 지나친 뒤, 며칠 뒤에야 그 일이 내 생활과 연결되어 있었다는 사실을 깨닫는 때입니다. 오늘의 이슈도 그렇습니다. 겉으로는 하나의 소식처럼 보이지만, 그 안에는 돈의 흐름, 사람들의 선택, 지역과 시장의 분위기가 함께 들어 있습니다.
+
+이번에 눈여겨볼 소식은 "{title}"입니다. 출처는 {source}입니다. 제목만 보면 멀리 있는 이야기처럼 느껴질 수 있지만, 이런 뉴스는 대개 우리 주변의 소비, 일자리, 물가, 정책 분위기와 연결됩니다. 그래서 중요한 것은 단순히 어떤 일이 일어났는지를 아는 데서 끝나지 않는 것입니다. 왜 이런 흐름이 나왔고, 앞으로 어떤 방향으로 이어질 수 있는지 생각해 보는 일이 더 중요합니다.
+
+## 제목 뒤에 숨어 있는 흐름
+
+이 이슈를 볼 때 먼저 살펴볼 것은 배경입니다. 뉴스는 갑자기 생기는 것처럼 보이지만, 실제로는 이전부터 쌓인 변화가 어느 순간 표면으로 올라오는 경우가 많습니다. 시장의 부담, 정책의 변화, 사람들의 불안, 지역 경제의 움직임 같은 요소가 겹치면 하나의 제목으로 압축되어 나타납니다.
+
+이 뉴스에서 중요한 것은 제목에 담긴 방향입니다. 어떤 이슈든 제목에는 그 시대가 어디를 향해 움직이는지 보여주는 단서가 숨어 있습니다. 정책, 산업, 시장, 생활의 변화가 한곳에서 만날 때 뉴스는 단순한 정보가 아니라 앞으로의 흐름을 읽는 신호가 됩니다.
+
+## 왜 지금 주목해야 할까
+
+사람들이 이런 뉴스에 관심을 가져야 하는 이유는 단순히 새로운 사건이기 때문만은 아닙니다. 이런 흐름은 시간이 지나면서 더 큰 선택으로 이어질 수 있습니다. 정부나 기업의 대응이 달라질 수 있고, 소비자 입장에서는 가격, 서비스, 생활 방식의 변화로 체감될 수도 있습니다.
+
+특히 경제와 사회 이슈는 처음에는 작게 보이다가 나중에 생활 속 비용이나 기회로 돌아오는 경우가 많습니다. 그래서 지금 필요한 태도는 빠른 결론이 아니라 차분한 관찰입니다. 누가 영향을 받는지, 어떤 부담이 생기는지, 반대로 어떤 기회가 열릴 수 있는지를 나눠서 보는 것이 좋습니다.
+
+## 우리가 봐야 할 포인트
+
+첫째, 이 변화가 일시적인 사건인지 아니면 이어져 온 흐름의 결과인지 봐야 합니다. 둘째, 실제 영향이 특정 집단에만 머무는지 아니면 더 넓은 시장과 생활로 번질 수 있는지 살펴야 합니다. 셋째, 이후에 나올 정책, 기업 대응, 현장의 반응을 함께 봐야 합니다.
+
+뉴스는 정답을 바로 주지 않습니다. 대신 앞으로 무엇을 확인해야 하는지 알려주는 신호에 가깝습니다. 이번 이슈도 마찬가지입니다. 제목 하나에 그치지 말고, 이어지는 변화까지 함께 보면 훨씬 선명하게 이해할 수 있습니다.
+
+## 마무리
+
+이번 소식은 단순히 오늘 하루 소비하고 지나갈 뉴스가 아닐 수 있습니다. 지금은 작은 움직임처럼 보여도, 시간이 지나면 생활과 시장의 방향을 바꾸는 단서가 될 수 있습니다. 그래서 저는 이 뉴스를 볼 때 '무슨 일이 있었나'보다 '이 다음에 무엇이 움직일까'를 함께 보는 편이 더 중요하다고 생각합니다.
+
+출처: {source}
+원문: {link}
+확인일: {today}
+""".strip()
+
+    tistory_post = f"""# {title}, 지금 주목해야 하는 이유
+
+## 이 뉴스가 던지는 질문
+
+{blog_post}
+
+## 관련 태그
+
+#뉴스 #경제뉴스 #이슈분석 #생활경제 #정책흐름 #블로그글쓰기 #오늘의뉴스
+""".strip()
+
+    thread_post = ensure_thread_length(
+        f"{title} 소식은 단순한 뉴스 제목으로만 넘기기엔 아쉽습니다. 중요한 건 사건 자체보다 그 뒤에 있는 흐름입니다. 누가 영향을 받고, 어떤 부담이나 기회가 생기며, 다음 변화가 어디서 나올지 함께 봐야 합니다.",
+        title,
+        blog_post,
+    )
+
+    slide_script = f"""# 유튜브 슬라이드 대본
+
+## 슬라이드 1. 오늘의 이슈
+- 화면 문구: {title[:45]}
+- 내레이션: 오늘은 이 뉴스를 그냥 넘기면 안 되는 이유를 짧게 정리해 보겠습니다.
+
+## 슬라이드 2. 핵심 흐름
+- 화면 문구: 제목 뒤의 흐름을 봐야 합니다
+- 내레이션: 뉴스는 한 문장으로 보이지만, 그 뒤에는 시장과 사람들의 선택이 함께 움직입니다.
+
+## 슬라이드 3. 왜 중요한가
+- 화면 문구: 생활과 연결될 수 있습니다
+- 내레이션: 이런 이슈는 시간이 지나면서 가격, 정책, 소비, 일자리 같은 생활 문제로 이어질 수 있습니다.
+
+## 슬라이드 4. 확인할 점
+- 화면 문구: 배경, 영향, 다음 움직임
+- 내레이션: 일시적인 사건인지, 영향 범위가 어디까지인지, 이후 대응이 어떻게 나오는지 봐야 합니다.
+
+## 슬라이드 5. 지금 필요한 태도
+- 화면 문구: 빠른 결론보다 차분한 관찰
+- 내레이션: 단정하기보다 이어지는 기사와 현장의 반응을 함께 확인하는 것이 좋습니다.
+
+## 슬라이드 6. 마무리
+- 화면 문구: 다음 변화를 봐야 합니다
+- 내레이션: 오늘의 뉴스가 내일 어떤 변화로 이어질지 계속 지켜보겠습니다.
+""".strip()
+
+    return {
+        "blog_post": blog_post[:4200],
+        "tistory_post": format_tistory_post(tistory_post)[:4500],
+        "thread_post": thread_post,
         "slide_script": slide_script,
         "vrew_script": slide_script,
     }
@@ -494,7 +719,7 @@ def fallback_derivative_content_from_blog(blog_post: str, item: NewsItem) -> dic
 
 def ensure_blog_min_length(blog_post: str, item: NewsItem, article_context: str, today: str) -> str:
     blog_post = (blog_post or "").strip()
-    if len(blog_post) >= 3000:
+    if len(blog_post) >= 2800:
         return blog_post[:4500]
 
     context = " ".join((article_context or "").split())
@@ -507,33 +732,33 @@ def ensure_blog_min_length(blog_post: str, item: NewsItem, article_context: str,
 
     expansion = f"""
 
-## 왜 이 이슈를 지금 봐야 할까
+## 그래서 지금 왜 봐야 할까요
 
-이 뉴스는 단순히 하루짜리 기사로만 소비하기에는 아쉬운 지점이 있습니다. 제목에 담긴 사건 자체보다 더 중요한 것은 이 사건이 어떤 흐름 위에서 나왔고, 앞으로 어떤 선택과 반응을 불러올 수 있느냐입니다. 특히 경제, 정책, 산업, 시장과 연결된 뉴스라면 발표 직후의 headline보다 그 다음에 이어질 움직임을 읽는 것이 훨씬 중요합니다.
+뉴스를 볼 때 가장 아쉬운 순간은 제목만 보고 지나쳤는데, 며칠 뒤 그 일이 생활비나 투자 심리, 일자리, 기업 분위기와 연결되어 있었다는 사실을 뒤늦게 깨닫는 때입니다. 이번 이슈도 비슷합니다. 표면적으로는 하나의 기사처럼 보이지만, 그 안에는 사람들이 무엇을 걱정하고 무엇을 기대하는지 보여주는 흐름이 들어 있습니다.
 
-이번 기사에서 확인되는 핵심은 다음과 같습니다. {context[:700]}
+이번 소식의 출발점은 {title}입니다. {source}에서 전한 이 흐름은 단순한 사건 소개에 그치지 않고, 앞으로 관련 시장과 정책, 소비자 선택에 어떤 영향을 줄지 생각하게 만듭니다. {context[:500]}
 
-다만 자동 수집 단계에서 기사 본문 전체를 충분히 확보하지 못했을 수 있기 때문에, 구체적인 수치와 발언은 원문 확인이 필요합니다. 그래서 이 글에서는 확인된 범위 안에서 해석할 수 있는 의미와 독자가 추가로 살펴봐야 할 포인트를 중심으로 정리하겠습니다. 확인되지 않은 숫자를 억지로 붙이는 것보다, 지금 단계에서 무엇을 봐야 하는지 분명하게 잡아두는 편이 더 안전합니다.
+중요한 것은 이 뉴스를 단순히 좋다, 나쁘다로 판단하지 않는 것입니다. 어떤 이슈든 처음에는 작게 보입니다. 하지만 시간이 지나면 비용, 수요, 정책 방향, 기업 전략 같은 현실적인 문제로 이어질 수 있습니다. 그래서 지금 필요한 것은 성급한 결론보다 차분한 해석입니다.
 
-## 첫 번째 포인트: 배경을 봐야 합니다
+## 제목보다 배경을 먼저 봐야 합니다
 
 뉴스를 볼 때 가장 먼저 확인해야 할 것은 왜 지금 이 이야기가 나왔는가입니다. 갑자기 등장한 것처럼 보이는 이슈도 실제로는 이전부터 쌓여 온 흐름의 결과인 경우가 많습니다. 정책 변화, 시장 심리, 기업 실적, 국제 정세, 기술 변화, 소비자 행동 같은 요인이 겹치면서 어느 순간 뉴스로 터져 나오는 식입니다.
 
 따라서 이 기사를 읽을 때도 단순히 제목만 보고 좋다, 나쁘다를 판단하기보다 그 배경을 함께 봐야 합니다. 어떤 이해관계자가 움직였는지, 어떤 제도나 시장 조건이 영향을 줬는지, 이전 기사들과 비교했을 때 달라진 점은 무엇인지 확인해야 합니다. 배경을 보면 기사 하나가 아니라 흐름이 보입니다.
 
-## 두 번째 포인트: 실제 영향 범위를 따져야 합니다
+## 실제 영향은 어디까지 갈까요
 
 두 번째는 영향 범위입니다. 모든 뉴스가 모든 사람에게 같은 무게로 다가오지는 않습니다. 어떤 뉴스는 특정 업계에만 영향을 주고, 어떤 뉴스는 소비자 물가나 투자 심리처럼 우리 일상과 직접 연결됩니다. 또 어떤 뉴스는 당장 큰 변화가 없어 보여도 몇 달 뒤 정책이나 시장 가격에 반영되기도 합니다.
 
 이 이슈도 마찬가지입니다. 관련 업계, 투자자, 소비자, 정책 담당자에게 각각 어떤 의미가 있는지 나눠서 봐야 합니다. 특히 돈의 흐름, 비용 구조, 수요 변화, 규제 가능성, 경쟁 구도와 연결되는 부분이 있다면 그 영향은 생각보다 오래갈 수 있습니다.
 
-## 세 번째 포인트: 숫자보다 방향을 먼저 봐야 합니다
+## 숫자보다 방향을 먼저 읽어야 합니다
 
 뉴스에서 숫자는 중요하지만, 숫자 하나만으로 전체를 판단하면 위험합니다. 중요한 것은 방향입니다. 좋아지고 있는지, 나빠지고 있는지, 속도가 빨라지는지, 시장의 반응이 일시적인지 지속적인지 봐야 합니다. 구체적인 수치가 부족한 기사일수록 더더욱 방향성을 먼저 확인해야 합니다.
 
 원문 기사에서 추가로 확인하면 좋은 것은 세 가지입니다. 첫째, 실제 수치나 일정입니다. 둘째, 관계자 발언입니다. 셋째, 이후 후속 조치입니다. 이 세 가지가 확인되면 뉴스의 무게가 훨씬 선명해집니다. 반대로 이 세 가지가 비어 있다면 성급한 판단을 피하는 것이 좋습니다.
 
-## 독자가 바로 확인하면 좋은 질문
+## 저에게 남는 질문
 
 이 뉴스를 읽고 나서 저에게 남는 질문은 명확합니다. 이 변화가 단기적인 움직임인지, 아니면 구조적인 변화의 시작인지 확인해야 합니다. 또 이 이슈가 특정 기업이나 업계에만 영향을 주는지, 아니면 더 넓은 시장과 생활비, 투자 판단, 정책 방향까지 이어질 수 있는지도 봐야 합니다.
 
@@ -547,7 +772,7 @@ def ensure_blog_min_length(blog_post: str, item: NewsItem, article_context: str,
 
 이 질문에 답이 쌓이면 단순한 뉴스 소비가 아니라 판단 가능한 정보로 바뀝니다.
 
-## 블로그 관점에서의 해석
+## 블로그 관점에서 정리하면
 
 블로그 글에서는 뉴스를 그대로 옮기는 것보다 독자가 이해하기 쉽게 해석하는 것이 중요합니다. 제목은 관심을 끌 수 있어야 하지만, 본문은 과장보다 정리가 우선입니다. 지금처럼 기사 본문이 충분히 수집되지 않은 경우에는 확인된 내용과 추정 가능한 해석을 분리해서 쓰는 것이 좋습니다.
 
@@ -1002,6 +1227,7 @@ def create_youtube_pptx(slide_script: str, output_path: Path, title: str) -> str
 
 
 def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackage | None:
+    global LAST_GEMINI_ERROR
     today = datetime.now().strftime("%Y-%m-%d")
     has_article_text = is_useful_article_text(item.article_text, item.title)
     has_summary = is_useful_article_text(item.summary, item.title)
@@ -1012,13 +1238,15 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
         article_context = item.summary
     else:
         article_context = (
-            "자동 수집으로는 기사 본문을 충분히 가져오지 못했습니다. "
-            "원문 링크를 열어 숫자, 발언, 일정, 배경 정보를 확인한 뒤 보강해야 합니다."
+            "기사 본문 전문은 제공되지 않았다. 이 사실을 독자에게 설명하지 말고, "
+            "뉴스 제목과 출처를 글감으로 삼아 관련 배경과 독자 관점의 해설을 자연스럽게 확장하라."
         )
 
     gemini_content = create_gemini_content(item, article_context, use_grounding=not has_article_text)
     if not gemini_content:
-        return None
+        gemini_content = create_local_content_package_data(item, article_context, today)
+        if not LAST_GEMINI_ERROR:
+            LAST_GEMINI_ERROR = "Gemini가 응답하지 않아 로컬 예비 글쓰기 엔진을 사용했습니다."
 
     blog_post = gemini_content["blog_post"]
     tistory_post = gemini_content["tistory_post"]
@@ -1026,8 +1254,13 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
     slide_script = gemini_content["slide_script"]
     vrew_script = gemini_content["vrew_script"]
 
-    if len(blog_post) < 3000:
-        return None
+    if len(blog_post) < 1000:
+        gemini_content = create_local_content_package_data(item, article_context, today)
+        blog_post = gemini_content["blog_post"]
+        tistory_post = gemini_content["tistory_post"]
+        thread_post = gemini_content["thread_post"]
+        slide_script = gemini_content["slide_script"]
+        vrew_script = gemini_content["vrew_script"]
 
     slide_blocks = ensure_six_slide_blocks(slide_script, item, article_context)
     slide_script = format_slide_script(slide_blocks, item.source, item.link)
@@ -1179,9 +1412,10 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
             str(settings.get("blog_draft_dir", "blog_drafts")),
         )
         if content_package is None:
+            error_detail = LAST_GEMINI_ERROR or "상세 오류 없음"
             content_message = (
-                "Gemini Pro가 3000자 이상 콘텐츠를 제대로 만들지 못해 콘텐츠 패키지를 저장하지 않았습니다. "
-                "API 한도, 모델명, Google Search grounding 사용 가능 여부를 확인해 주세요."
+                "Gemini Pro가 3000자 블로그 글을 제대로 만들지 못해 콘텐츠 패키지를 저장하지 않았습니다. "
+                f"원인: {error_detail}"
             )
 
     if dry_run:
