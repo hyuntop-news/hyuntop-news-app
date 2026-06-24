@@ -214,11 +214,26 @@ def create_slide_images(slide_text: str, output_dir: Path) -> list[Path]:
 
     slides = parse_slide_blocks_for_assets(slide_text)
     output_dir.mkdir(parents=True, exist_ok=True)
-    font_path = Path("C:/Windows/Fonts/malgun.ttf")
-    bold_path = Path("C:/Windows/Fonts/malgunbd.ttf")
-    title_font = ImageFont.truetype(str(bold_path if bold_path.exists() else font_path), 54)
-    body_font = ImageFont.truetype(str(font_path), 34)
-    small_font = ImageFont.truetype(str(font_path), 22)
+
+    def load_font(size: int, bold: bool = False):
+        candidates = [
+            Path("C:/Windows/Fonts/malgunbd.ttf" if bold else "C:/Windows/Fonts/malgun.ttf"),
+            Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+            Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+            Path("/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf" if bold else "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        ]
+        for path in candidates:
+            if path.exists():
+                try:
+                    return ImageFont.truetype(str(path), size)
+                except OSError:
+                    continue
+        return ImageFont.load_default()
+
+    title_font = load_font(54, bold=True)
+    body_font = load_font(34)
+    small_font = load_font(22)
 
     image_paths: list[Path] = []
     for index, slide in enumerate(slides, 1):
