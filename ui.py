@@ -167,18 +167,25 @@ def parse_slide_blocks_for_assets(slide_text: str) -> list[dict[str, str]]:
     current: dict[str, str] | None = None
     mode = ""
     for line in slide_text.splitlines():
-        clean = line.strip()
+        clean = line.strip().lstrip("-").strip()
         if not clean:
             continue
+        label = clean.rstrip(":：").strip()
         if clean.startswith("## 슬라이드"):
             if current:
                 slides.append(current)
             current = {"title": clean.lstrip("# ").strip(), "screen": "", "narration": ""}
             mode = ""
-        elif current and clean == "화면 문구":
+        elif current and label == "화면 문구":
             mode = "screen"
-        elif current and clean == "내레이션":
+        elif current and label == "내레이션":
             mode = "narration"
+        elif current and clean.startswith("화면 문구:"):
+            mode = "screen"
+            current["screen"] = (current["screen"] + "\n" + clean.split(":", 1)[1].strip()).strip()
+        elif current and clean.startswith("내레이션:"):
+            mode = "narration"
+            current["narration"] = (current["narration"] + "\n" + clean.split(":", 1)[1].strip()).strip()
         elif current and mode == "screen":
             current["screen"] = (current["screen"] + "\n" + clean).strip()
         elif current and mode == "narration":
@@ -220,10 +227,24 @@ def create_slide_images(slide_text: str, output_dir: Path) -> list[Path]:
         candidates = [
             Path("C:/Windows/Fonts/malgunbd.ttf" if bold else "C:/Windows/Fonts/malgun.ttf"),
             Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+            Path("/usr/share/fonts/opentype/noto/NotoSansCJKkr-Bold.otf" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf"),
             Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+            Path("/usr/share/fonts/truetype/noto/NotoSansKR-Bold.ttf" if bold else "/usr/share/fonts/truetype/noto/NotoSansKR-Regular.ttf"),
             Path("/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf" if bold else "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"),
             Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
         ]
+        search_roots = [
+            Path("/usr/share/fonts/opentype/noto"),
+            Path("/usr/share/fonts/truetype/noto"),
+            Path("/usr/share/fonts/truetype/nanum"),
+        ]
+        preferred_names = (
+            ["*Bold*.ttc", "*Bold*.otf", "*Bold*.ttf"] if bold else ["*Regular*.ttc", "*Regular*.otf", "*Regular*.ttf", "*.ttc", "*.otf", "*.ttf"]
+        )
+        for root in search_roots:
+            if root.exists():
+                for pattern in preferred_names:
+                    candidates.extend(root.glob(pattern))
         for path in candidates:
             if path.exists():
                 try:
