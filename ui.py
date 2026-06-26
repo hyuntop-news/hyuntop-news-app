@@ -1,4 +1,5 @@
 import html
+import hmac
 import asyncio
 import json
 import os
@@ -766,6 +767,49 @@ def card(title: str, value: str, caption: str = "", accent: str = "cyan") -> Non
     )
 
 
+def get_dashboard_password() -> str:
+    for name in ("DASHBOARD_PASSWORD", "APP_PASSWORD"):
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+        try:
+            value = str(st.secrets.get(name, "")).strip()
+        except Exception:
+            value = ""
+        if value:
+            return value
+    return ""
+
+
+def require_dashboard_login() -> None:
+    password = get_dashboard_password()
+    if not password:
+        st.error("관리자 비밀번호가 설정되지 않았습니다.")
+        st.info("Streamlit Secrets 또는 로컬 .env에 DASHBOARD_PASSWORD를 추가해 주세요.")
+        st.stop()
+
+    if st.session_state.get("dashboard_authenticated"):
+        return
+
+    st.markdown(
+        """
+        <div style="max-width:420px;margin:14vh auto 0;padding:28px;border:1px solid #263248;border-radius:8px;background:#111827;">
+            <h2 style="margin-top:0;color:white;">관리자 로그인</h2>
+            <p style="color:#8ea0bd;margin-bottom:18px;">비밀번호를 입력해야 뉴스 자동화 대시보드를 사용할 수 있습니다.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    typed_password = st.text_input("비밀번호", type="password", label_visibility="collapsed")
+    if st.button("로그인", use_container_width=True):
+        if hmac.compare_digest(typed_password, password):
+            st.session_state["dashboard_authenticated"] = True
+            st.rerun()
+        else:
+            st.error("비밀번호가 맞지 않습니다.")
+    st.stop()
+
+
 st.set_page_config(page_title="현탑부동산 뉴스앱", page_icon="HN", layout="wide")
 
 st.markdown(
@@ -993,6 +1037,8 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+require_dashboard_login()
 
 settings = load_settings()
 now_text = datetime.now().strftime("%Y. %m. %d. %H:%M")

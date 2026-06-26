@@ -9,7 +9,6 @@ import ssl
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
 from datetime import datetime
 from email.message import EmailMessage
 from html.parser import HTMLParser
@@ -22,25 +21,42 @@ DEFAULT_FEED_URL = "https://news.google.com/rss?hl=ko&gl=KR&ceid=KR:ko"
 LAST_GEMINI_ERROR = ""
 
 
-@dataclass
 class NewsItem:
-    title: str
-    link: str
-    source: str
-    summary: str = ""
-    article_text: str = ""
+    def __init__(
+        self,
+        title: str,
+        link: str,
+        source: str,
+        summary: str = "",
+        article_text: str = "",
+    ) -> None:
+        self.title = title
+        self.link = link
+        self.source = source
+        self.summary = summary
+        self.article_text = article_text
 
 
-@dataclass
 class ContentPackage:
-    news_title: str
-    blog_post: str
-    tistory_post: str
-    thread_post: str
-    slide_script: str
-    vrew_script: str
-    directory: str = ""
-    pptx_path: str = ""
+    def __init__(
+        self,
+        news_title: str,
+        blog_post: str,
+        tistory_post: str,
+        thread_post: str,
+        slide_script: str,
+        vrew_script: str,
+        directory: str = "",
+        pptx_path: str = "",
+    ) -> None:
+        self.news_title = news_title
+        self.blog_post = blog_post
+        self.tistory_post = tistory_post
+        self.thread_post = thread_post
+        self.slide_script = slide_script
+        self.vrew_script = vrew_script
+        self.directory = directory
+        self.pptx_path = pptx_path
 
 
 def load_env_file(path: Path = BASE_DIR / ".env") -> None:
