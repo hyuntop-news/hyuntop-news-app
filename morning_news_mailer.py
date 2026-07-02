@@ -1449,6 +1449,488 @@ def send_email(message: EmailMessage, sender: str, app_password: str) -> None:
         smtp.send_message(message)
 
 
+def _clean_news_title(title: str) -> str:
+    title = re.sub(r"\s+", " ", title or "").strip()
+    title = re.sub(r"\s*-\s*[^-]{2,25}$", "", title).strip()
+    return title or "오늘의 뉴스"
+
+
+def _article_core(title: str, context: str) -> str:
+    text = " ".join((context or "").split())
+    if len(text) > 120 and "본문" not in text[:80]:
+        return text[:900]
+    return _clean_news_title(title)
+
+
+def _make_reader_questions(title: str) -> list[str]:
+    clean = _clean_news_title(title)
+    return [
+        f"{clean}이 실제 정책이나 시장 흐름으로 이어질 가능성은 얼마나 되는가?",
+        "직접 영향을 받는 사람은 누구이고, 부담은 어디로 이동하는가?",
+        "이번 발표 이후 정부, 기업, 시장이 다음에 확인할 지표는 무엇인가?",
+        "내 생활비, 투자 판단, 사업 계획에 연결되는 부분은 없는가?",
+    ]
+
+
+def parse_slide_blocks(slide_script: str) -> list[dict[str, str]]:
+    blocks: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    mode = ""
+
+    for raw_line in (slide_script or "").splitlines():
+        line = raw_line.strip().lstrip("-").strip()
+        if not line:
+            continue
+
+        if line.startswith("##") and ("슬라이드" in line or "Slide" in line):
+            if current:
+                blocks.append(current)
+            current = {"title": line.lstrip("# ").strip(), "screen": "", "narration": ""}
+            mode = ""
+            continue
+
+        if current is None:
+            continue
+
+        label = line.rstrip(":：").strip()
+        if label in {"화면 문구", "화면", "screen", "Screen"}:
+            mode = "screen"
+            continue
+        if label in {"내레이션", "나레이션", "narration", "Narration"}:
+            mode = "narration"
+            continue
+        if line.startswith(("화면 문구:", "화면:", "screen:", "Screen:")):
+            mode = "screen"
+            current["screen"] = (current["screen"] + "\n" + line.split(":", 1)[1].strip()).strip()
+            continue
+        if line.startswith(("내레이션:", "나레이션:", "narration:", "Narration:")):
+            mode = "narration"
+            current["narration"] = (current["narration"] + "\n" + line.split(":", 1)[1].strip()).strip()
+            continue
+
+        if mode == "screen":
+            current["screen"] = (current["screen"] + "\n" + line).strip()
+        elif mode == "narration":
+            current["narration"] = (current["narration"] + "\n" + line).strip()
+        elif not current["screen"]:
+            current["screen"] = line
+
+    if current:
+        blocks.append(current)
+    return blocks[:6]
+
+
+def fallback_slide_blocks(item: NewsItem, article_context: str) -> list[dict[str, str]]:
+    title = _clean_news_title(item.title)
+    core = _article_core(item.title, article_context)
+    questions = _make_reader_questions(item.title)
+    return [
+        {
+            "title": "슬라이드 1. 오늘의 핵심 뉴스",
+            "screen": title,
+            "narration": f"오늘 볼 뉴스는 {title}입니다. 제목만 보면 지나칠 수 있지만, 정책과 시장 흐름을 함께 읽어야 하는 이슈입니다.",
+        },
+        {
+            "title": "슬라이드 2. 기사에서 드러난 쟁점",
+            "screen": core[:90],
+            "narration": f"이 뉴스의 출발점은 {core[:180]}입니다. 핵심은 사건 자체보다 이 흐름이 어디까지 번질 수 있느냐입니다.",
+        },
+        {
+            "title": "슬라이드 3. 왜 지금 중요한가",
+            "screen": "생활비, 투자 판단, 정책 변화와 연결될 수 있습니다",
+            "narration": "이런 뉴스는 처음에는 멀리 있는 이야기처럼 보여도 시간이 지나면 세금, 집값, 물가, 일자리, 투자 심리에 영향을 줄 수 있습니다.",
+        },
+        {
+            "title": "슬라이드 4. 지금 확인할 것",
+            "screen": "\n".join(questions[:3]),
+            "narration": "성급한 결론보다 확인 질문을 먼저 세워야 합니다. 누가 영향을 받는지, 비용은 어디로 이동하는지, 다음 발표가 무엇인지 봐야 합니다.",
+        },
+        {
+            "title": "슬라이드 5. 대응 관점",
+            "screen": "뉴스를 소비하지 말고 내 선택 기준으로 바꾸기",
+            "narration": "뉴스를 그대로 믿거나 넘기기보다 내 자산, 소비, 사업, 생활 계획에 어떤 영향을 줄 수 있는지 기준을 만들어야 합니다.",
+        },
+        {
+            "title": "슬라이드 6. 마무리",
+            "screen": "다음 변화가 어디에서 시작될지 지켜보세요",
+            "narration": "이번 뉴스는 하나의 신호입니다. 후속 기사와 실제 정책 변화를 함께 보면서 내 선택지를 미리 정리해 두는 것이 중요합니다.",
+        },
+    ]
+
+
+def ensure_six_slide_blocks(slide_script: str, item: NewsItem, article_context: str) -> list[dict[str, str]]:
+    parsed = parse_slide_blocks(slide_script)
+    defaults = fallback_slide_blocks(item, article_context)
+    blocks: list[dict[str, str]] = []
+    for index in range(6):
+        source = parsed[index] if index < len(parsed) else {}
+        default = defaults[index]
+        title = source.get("title") or default["title"]
+        if "슬라이드" not in title:
+            title = f"슬라이드 {index + 1}. {title}"
+        blocks.append(
+            {
+                "title": title,
+                "screen": (source.get("screen") or default["screen"]).strip(),
+                "narration": (source.get("narration") or default["narration"]).strip(),
+            }
+        )
+    return blocks
+
+
+def format_slide_script(blocks: list[dict[str, str]], source: str, link: str) -> str:
+    sections = ["# 유튜브 슬라이드 대본"]
+    for index, block in enumerate(blocks, 1):
+        title = block["title"]
+        if not title.startswith(f"슬라이드 {index}"):
+            title = f"슬라이드 {index}. {title}"
+        sections.append(
+            f"""## {title}
+
+화면 문구:
+{block['screen']}
+
+내레이션:
+{block['narration']}"""
+        )
+    sections.append(f"출처: {source}\n원문: {link}")
+    return "\n\n".join(sections)
+
+
+def format_vrew_script(blocks: list[dict[str, str]], source: str) -> str:
+    sections = ["# Vrew 대본"]
+    for index, block in enumerate(blocks, 1):
+        title = block["title"]
+        if not title.startswith(f"슬라이드 {index}"):
+            title = f"슬라이드 {index}. {title}"
+        sections.append(
+            f"""## {title}
+
+화면 문구:
+{block['screen']}
+
+내레이션:
+{block['narration']}"""
+        )
+    sections.append(f"출처: {source}")
+    return "\n\n".join(sections)
+
+
+def _build_tistory_post_from_blog(blog_post: str, title: str, source: str, link: str) -> str:
+    clean_title = _clean_news_title(title)
+    body = re.sub(r"^# .*$", "", blog_post or "", count=1, flags=re.MULTILINE).strip()
+    body = re.sub(r"출처:.*", "", body).strip()
+    body = re.sub(r"원문:.*", "", body).strip()
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
+    intro = paragraphs[0] if paragraphs else f"{clean_title} 이슈를 5060 독자 관점에서 정리합니다."
+    middle = "\n\n".join(paragraphs[1:5]) if len(paragraphs) > 1 else body
+    questions = "\n".join(f"- {q}" for q in _make_reader_questions(title))
+    tags = "#뉴스해설 #경제뉴스 #정책이슈 #부동산뉴스 #5060정보 #생활경제"
+    return format_tistory_post(
+        f"""# {clean_title}, 지금 확인해야 할 흐름
+
+{intro}
+
+## 1. 제목이 말하는 핵심 변화
+
+이번 뉴스는 단순한 사건 전달보다 앞으로의 방향을 읽는 데 의미가 있습니다. 제목 속 표현을 보면 시장과 정책, 사람들의 선택이 어디로 움직이는지 단서가 들어 있습니다.
+
+{middle}
+
+## 2. 저에게 중요한 이유
+
+이런 뉴스는 처음에는 멀리 있는 이야기처럼 보이지만, 시간이 지나면 생활비와 세금, 자산 가격, 투자 심리, 사업 환경으로 이어질 수 있습니다.
+
+그래서 중요한 것은 누가 이익을 보고, 누가 부담을 지며, 그 부담이 어느 시점에 현실화되는지 확인하는 일입니다.
+
+## 3. 바로 확인할 질문
+
+{questions}
+
+## 4. 오늘의 정리
+
+지금 필요한 태도는 빠른 결론이 아니라 차분한 확인입니다. 원문과 후속 보도를 함께 보면서 이 이슈가 일시적 소음인지, 실제 변화의 시작인지 구분해야 합니다.
+
+출처: {source}
+
+원문: {link}
+
+태그: {tags}"""
+    )[:4500]
+
+
+def _build_thread_post_from_blog(blog_post: str, title: str) -> str:
+    clean_title = _clean_news_title(title)
+    snippet = " ".join(re.sub(r"#+\s*", "", blog_post or "").split())[:180]
+    text = (
+        f"{clean_title} 뉴스는 제목만 보고 넘기기엔 아깝습니다. "
+        f"{snippet} "
+        "핵심은 사건보다 다음 변화입니다. 누가 부담을 지고, 어떤 정책과 시장 반응이 이어질지 확인해야 합니다."
+    )
+    return ensure_thread_length(text, clean_title, blog_post)
+
+
+def create_local_content_package_data(item: NewsItem, article_context: str, today: str) -> dict:
+    title = _clean_news_title(item.title)
+    core = _article_core(item.title, article_context)
+    questions = "\n".join(f"- {q}" for q in _make_reader_questions(item.title))
+    blog_post = f"""# {title}을 그냥 넘기면 안 되는 이유
+
+뉴스를 볼 때 가장 아쉬운 순간은 제목만 보고 지나친 뒤, 며칠 뒤에야 그 일이 내 생활과 연결되어 있었다는 사실을 깨닫는 때입니다.
+
+이번에 눈여겨볼 소식은 "{title}"입니다. 출처는 {item.source}입니다. 이 뉴스는 단순한 사건 전달보다 앞으로의 정책, 시장, 생활 변화가 어디로 움직일지 읽는 데 의미가 있습니다.
+
+## 1. 제목 뒤에 숨어 있는 흐름
+
+{core}
+
+뉴스는 갑자기 생기는 것처럼 보이지만 실제로는 이전부터 쌓인 변화가 표면으로 올라오는 경우가 많습니다. 그래서 제목만 보고 좋다, 나쁘다를 판단하기보다 배경과 후속 움직임을 함께 봐야 합니다.
+
+## 2. 왜 지금 중요할까
+
+이런 이슈는 시간이 지나면서 생활비, 세금, 자산 가격, 투자 심리, 사업 환경으로 연결될 수 있습니다. 특히 정책과 시장이 함께 움직이는 뉴스라면 처음에는 작게 보여도 나중에는 체감 변화가 커질 수 있습니다.
+
+## 3. 저에게 영향을 줄 수 있는 부분
+
+첫째, 비용 구조가 바뀔 수 있습니다. 세금이나 규제, 공급과 수요의 변화는 결국 개인의 지출과 자산 판단에 영향을 줍니다.
+
+둘째, 시장 심리가 흔들릴 수 있습니다. 투자자와 소비자가 같은 뉴스를 다르게 받아들이면 가격과 거래량이 먼저 반응할 수 있습니다.
+
+셋째, 후속 정책이 더 중요해질 수 있습니다. 뉴스의 첫 발표보다 이후 세부안, 시행 시기, 예외 조건이 실제 영향을 결정하는 경우가 많습니다.
+
+## 4. 지금 바로 확인할 질문
+
+{questions}
+
+## 5. 마무리
+
+이번 뉴스는 오늘 하루 소비하고 끝낼 소식이 아닐 수 있습니다. 원문과 후속 보도를 함께 보면서 이 변화가 내 생활과 자산 판단에 어떤 신호를 주는지 차분히 확인해 보시기 바랍니다.
+
+다음에는 이 이슈가 실제 시장 반응으로 이어지는지, 관련 정책과 기업 대응이 어떻게 나오는지 함께 점검해 보겠습니다.
+
+출처: {item.source}
+원문: {item.link}
+확인일: {today}"""
+    tistory_post = _build_tistory_post_from_blog(blog_post, title, item.source, item.link)
+    thread_post = _build_thread_post_from_blog(blog_post, title)
+    slide_blocks = fallback_slide_blocks(item, article_context)
+    slide_script = format_slide_script(slide_blocks, item.source, item.link)
+    return {
+        "blog_post": blog_post[:4500],
+        "tistory_post": tistory_post,
+        "thread_post": thread_post,
+        "slide_script": slide_script,
+        "vrew_script": format_vrew_script(slide_blocks, item.source),
+    }
+
+
+def create_derivative_content_from_blog(
+    blog_post: str,
+    title: str = "",
+    source: str = "직접 편집",
+    link: str = "",
+) -> dict[str, str]:
+    title = title.strip() or extract_title_from_text(blog_post, "직접 작성한 블로그 글")
+    source = source.strip() or "직접 편집"
+    link = link.strip()
+    data: dict[str, str] | None = None
+    api_key = get_secret("GEMINI_API_KEY")
+
+    if api_key:
+        try:
+            from google import genai
+            from google.genai import types
+
+            model = get_secret("GEMINI_MODEL") or "gemini-2.5-pro"
+            prompt = f"""
+아래 블로그 글을 바탕으로 4개 콘텐츠를 새로 작성하라.
+반드시 한국어 JSON 객체 하나만 반환하라.
+키는 tistory_post, thread_post, slide_script, vrew_script만 사용하라.
+
+공통 원칙:
+- 원문 블로그 글의 뉴스 핵심 단어, 인물, 기관, 정책명, 시장 영향을 반드시 반영한다.
+- 확인되지 않은 숫자, 발언, 일정은 새로 만들지 않는다.
+- 일반론만 반복하지 말고, 제목과 본문에 있는 구체 이슈를 중심으로 쓴다.
+
+tistory_post:
+- 블로그 글과 문장 구조가 같으면 안 된다. 티스토리용 새 글처럼 각색한다.
+- 2500~3500자, 짧은 문단, H2/H3 소제목, 목록, 마무리, 태그 5~8개 포함.
+- 문단마다 빈 줄을 넣고, 긴 문장을 계속 이어 쓰지 않는다.
+
+thread_post:
+- 280~330자.
+- 뉴스의 구체 주제와 왜 지금 봐야 하는지를 포함한다.
+
+slide_script:
+- 정확히 6개 슬라이드.
+- "## 슬라이드 1. ..."부터 "## 슬라이드 6. ..."까지 순서대로 작성한다.
+- 각 슬라이드는 "화면 문구:"와 "내레이션:"을 포함한다.
+- 슬라이드 1은 뉴스 제목을 한눈에 보여주는 제목 슬라이드로 만든다.
+- 모든 슬라이드에 뉴스의 실제 주제어가 드러나야 한다.
+
+vrew_script:
+- slide_script와 같은 6개 장면 순서.
+- 말로 읽기 자연스러운 내레이션 중심으로 작성한다.
+
+제목: {title}
+출처: {source}
+원문: {link}
+
+블로그 글:
+{blog_post[:7000]}
+"""
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.75,
+                    max_output_tokens=8192,
+                    response_mime_type="application/json",
+                ),
+            )
+            raw_data = extract_json_object(response.text)
+            data = {
+                "tistory_post": format_tistory_post(str(raw_data.get("tistory_post", "")).strip())[:4500],
+                "thread_post": ensure_thread_length(str(raw_data.get("thread_post", "")).strip(), title, blog_post),
+                "slide_script": str(raw_data.get("slide_script", "")).strip(),
+                "vrew_script": str(raw_data.get("vrew_script", "")).strip(),
+            }
+        except Exception:
+            data = None
+
+    item = NewsItem(title=title, link=link, source=source, summary=blog_post[:500], article_text=blog_post)
+    if not data or not all(data.values()):
+        data = {
+            "tistory_post": _build_tistory_post_from_blog(blog_post, title, source, link),
+            "thread_post": _build_thread_post_from_blog(blog_post, title),
+            "slide_script": "",
+            "vrew_script": "",
+        }
+
+    slide_blocks = ensure_six_slide_blocks(data.get("slide_script", ""), item, blog_post)
+    data["slide_script"] = format_slide_script(slide_blocks, source, link)
+    data["vrew_script"] = format_vrew_script(slide_blocks, source)
+    data["thread_post"] = ensure_thread_length(data["thread_post"], title, blog_post)
+    data["tistory_post"] = format_tistory_post(data["tistory_post"])[:4500]
+    return data
+
+
+def create_gemini_content(item: NewsItem, article_context: str, use_grounding: bool = False) -> dict | None:
+    global LAST_GEMINI_ERROR
+    LAST_GEMINI_ERROR = ""
+    api_key = get_secret("GEMINI_API_KEY")
+    if not api_key:
+        LAST_GEMINI_ERROR = "GEMINI_API_KEY가 없습니다."
+        return None
+
+    try:
+        from google import genai
+        from google.genai import types
+    except Exception as exc:
+        LAST_GEMINI_ERROR = f"Gemini 패키지를 불러오지 못했습니다: {exc}"
+        return None
+
+    model = get_secret("GEMINI_MODEL") or "gemini-2.5-pro"
+    title = _clean_news_title(item.title)
+    prompt = f"""
+당신은 5060 독자를 위한 한국어 뉴스 해설 블로그 작가다.
+아래 뉴스 정보를 바탕으로 콘텐츠 5개를 작성하라.
+반드시 JSON 객체 하나만 반환하라.
+키는 blog_post, tistory_post, thread_post, slide_script, vrew_script만 사용하라.
+
+절대 규칙:
+- 기사 제목, 출처, 수집 본문에 있는 구체 주제어를 반드시 반영한다.
+- 기사 본문이 부족해도 "본문을 못 가져왔다", "정보가 부족하다"라고 독자에게 말하지 않는다.
+- 확인되지 않은 숫자, 발언, 일정, 기업명은 만들지 않는다.
+- 일반론만 반복하지 말고, 이 뉴스 제목의 핵심 쟁점을 중심으로 쓴다.
+- 문단을 길게 붙여 쓰지 말고, 읽기 쉽게 나눈다.
+
+blog_post:
+- 2500~3500자.
+- 티스토리 블로그처럼 읽히는 실전형 뉴스 해설 글.
+- 제목은 후킹형으로 시작한다.
+- 1~5번 번호 소제목을 사용한다.
+- "왜 지금 중요한가", "저에게 어떤 영향이 있는가", "지금 확인할 것", "마무리"가 드러나야 한다.
+- 뉴스 기사이므로 허구 사례는 넣지 않는다.
+
+tistory_post:
+- blog_post를 복사하지 말고, 티스토리 업로드용으로 새롭게 각색한다.
+- 2500~3500자.
+- SEO형 제목, H2/H3 소제목, 짧은 문단, 목록, 마무리, 태그 5~8개 포함.
+- blog_post와 같은 문장 순서나 같은 표현을 반복하지 않는다.
+
+thread_post:
+- 280~330자.
+- 뉴스의 구체 주제, 왜 지금 봐야 하는지, 독자가 확인할 포인트를 포함한다.
+
+slide_script:
+- 정확히 6개 슬라이드.
+- "## 슬라이드 1. ..."부터 "## 슬라이드 6. ..."까지 순서대로 작성한다.
+- 각 슬라이드는 "화면 문구:"와 "내레이션:"을 포함한다.
+- 슬라이드 1은 뉴스 제목이 잘 보이는 제목 슬라이드다.
+- 모든 슬라이드에 이 뉴스의 구체 내용과 주제어가 들어가야 한다.
+
+vrew_script:
+- slide_script와 같은 순서의 6개 장면.
+- 말로 읽기 자연스러운 내레이션 대본으로 쓴다.
+
+뉴스 제목:
+{title}
+
+출처:
+{item.source}
+
+원문 링크:
+{item.link}
+
+수집된 기사 정보:
+{article_context}
+"""
+
+    client = genai.Client(api_key=api_key)
+
+    try:
+        config_kwargs = {
+            "temperature": 0.78,
+            "max_output_tokens": 8192,
+            "response_mime_type": "application/json",
+        }
+        if use_grounding:
+            config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(**config_kwargs),
+        )
+        data = extract_json_object(response.text)
+    except Exception as exc:
+        LAST_GEMINI_ERROR = f"Gemini 생성 실패: {exc}"
+        return None
+
+    blog_post = str(data.get("blog_post", "")).strip()
+    tistory_post = str(data.get("tistory_post", "")).strip()
+    thread_post = str(data.get("thread_post", "")).strip()
+    slide_script = str(data.get("slide_script", "")).strip()
+    vrew_script = str(data.get("vrew_script", "")).strip()
+
+    if len(blog_post) < 1000:
+        LAST_GEMINI_ERROR = f"Gemini 응답이 너무 짧습니다: {len(blog_post)}자"
+        return None
+    if not all([blog_post, tistory_post, thread_post, slide_script, vrew_script]):
+        LAST_GEMINI_ERROR = "Gemini 응답에서 필요한 항목 일부가 비어 있습니다."
+        return None
+
+    slide_blocks = ensure_six_slide_blocks(slide_script, item, article_context)
+    return {
+        "blog_post": blog_post[:4500],
+        "tistory_post": format_tistory_post(tistory_post)[:4500],
+        "thread_post": ensure_thread_length(thread_post, item.title, blog_post),
+        "slide_script": format_slide_script(slide_blocks, item.source, item.link),
+        "vrew_script": format_vrew_script(slide_blocks, item.source),
+    }
+
+
 def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
     load_env_file()
     settings = settings or load_settings()
