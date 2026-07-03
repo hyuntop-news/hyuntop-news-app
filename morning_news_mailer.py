@@ -1931,6 +1931,83 @@ vrew_script:
     }
 
 
+def clean_narration_text(text: str) -> str:
+    replacements = {
+        "주요내용": "중요한 내용",
+        "주요 내용": "중요한 내용",
+        "핵심메지시": "중요한 메시지",
+        "핵심메시지": "중요한 메시지",
+        "핵심 메시지": "중요한 메시지",
+    }
+    cleaned = text or ""
+    for old, new in replacements.items():
+        cleaned = cleaned.replace(old, new)
+    return cleaned
+
+
+def ensure_six_slide_blocks(slide_script: str, item: NewsItem, article_context: str) -> list[dict[str, str]]:
+    parsed = parse_slide_blocks(slide_script)
+    defaults = fallback_slide_blocks(item, article_context)
+    blocks: list[dict[str, str]] = []
+    for index in range(6):
+        source = parsed[index] if index < len(parsed) else {}
+        default = defaults[index]
+        title = source.get("title") or default["title"]
+        if "슬라이드" not in title:
+            title = f"슬라이드 {index + 1}. {title}"
+        blocks.append(
+            {
+                "title": title,
+                "screen": (source.get("screen") or default["screen"]).strip(),
+                "narration": clean_narration_text((source.get("narration") or default["narration"]).strip()),
+            }
+        )
+    return blocks
+
+
+def format_slide_script(blocks: list[dict[str, str]], source: str, link: str) -> str:
+    sections = ["# 유튜브 슬라이드 대본"]
+    for index, block in enumerate(blocks, 1):
+        title = block["title"]
+        screen = block["screen"]
+        if index == 1 and screen:
+            title = f"슬라이드 1. {screen[:70]}"
+        elif not title.startswith(f"슬라이드 {index}"):
+            title = f"슬라이드 {index}. {title}"
+        sections.append(
+            f"""## {title}
+
+화면 문구:
+{screen}
+
+내레이션:
+{clean_narration_text(block['narration'])}"""
+        )
+    sections.append(f"출처: {source}\n원문: {link}")
+    return "\n\n".join(sections)
+
+
+def format_vrew_script(blocks: list[dict[str, str]], source: str) -> str:
+    sections = ["# Vrew 대본"]
+    for index, block in enumerate(blocks, 1):
+        title = block["title"]
+        if index == 1 and block.get("screen"):
+            title = f"슬라이드 1. {block['screen'][:70]}"
+        elif not title.startswith(f"슬라이드 {index}"):
+            title = f"슬라이드 {index}. {title}"
+        sections.append(
+            f"""## {title}
+
+화면 문구:
+{block['screen']}
+
+내레이션:
+{clean_narration_text(block['narration'])}"""
+        )
+    sections.append(f"출처: {source}")
+    return "\n\n".join(sections)
+
+
 def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
     load_env_file()
     settings = settings or load_settings()

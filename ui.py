@@ -528,6 +528,162 @@ def parse_slide_blocks_for_assets(slide_text: str) -> list[dict[str, str]]:
     return slides[:6]
 
 
+def clean_video_narration(text: str) -> str:
+    replacements = {
+        "주요내용": "중요한 내용",
+        "주요 내용": "중요한 내용",
+        "핵심메지시": "중요한 메시지",
+        "핵심메시지": "중요한 메시지",
+        "핵심 메시지": "중요한 메시지",
+    }
+    cleaned = text or ""
+    for old, new in replacements.items():
+        cleaned = cleaned.replace(old, new)
+    return cleaned
+
+
+def download_pexels_image(query: str, output_path: Path, api_key: str, page: int = 1) -> None:
+    params = urllib.parse.urlencode(
+        {
+            "query": query,
+            "per_page": 1,
+            "page": max(1, page),
+            "orientation": "landscape",
+            "locale": "ko-KR",
+        }
+    )
+    request = urllib.request.Request(
+        f"https://api.pexels.com/v1/search?{params}",
+        headers={"Authorization": api_key, "User-Agent": "HYUNTOP-News-Dashboard/1.0"},
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    photos = payload.get("photos") or []
+    if not photos and page > 1:
+        return download_pexels_image(query, output_path, api_key, page=1)
+    if not photos:
+        raise RuntimeError(f"'{query}' 검색 결과가 없습니다.")
+
+    src = photos[0].get("src", {})
+    image_url = src.get("landscape") or src.get("large") or src.get("original")
+    if not image_url:
+        raise RuntimeError("이미지 주소를 찾지 못했습니다.")
+
+    image_request = urllib.request.Request(image_url, headers={"User-Agent": "HYUNTOP-News-Dashboard/1.0"})
+    with urllib.request.urlopen(image_request, timeout=30) as response:
+        output_path.write_bytes(response.read())
+
+
+def auto_fill_slide_images(package_dir: Path) -> list[str]:
+    api_key = get_config_value("PEXELS_API_KEY")
+    if not api_key:
+        raise RuntimeError("PEXELS_API_KEY가 없습니다. 로컬 .env 또는 Streamlit Secrets에 추가해 주세요.")
+
+    slide_text = read_text_if_exists(package_dir / "04-youtube-slides.md")
+    slides = parse_slide_blocks_for_assets(slide_text)
+    if not slides:
+        raise RuntimeError("유튜브 슬라이드 대본이 없어 자동 이미지를 찾을 수 없습니다.")
+
+    asset_dir = get_slide_asset_dir(package_dir)
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    title = extract_markdown_title(read_text_if_exists(package_dir / "01-blog-post.md"), package_dir.name)
+
+    results: list[str] = []
+    for index, slide in enumerate(slides[:6], 1):
+        if get_slide_asset(asset_dir, index, VIDEO_ASSET_EXTS):
+            results.append(f"슬라이드 {index}: 기존 영상 파일 유지")
+            continue
+        query_seed = " ".join([slide.get("title", ""), slide.get("screen", ""), title]).strip()
+        query = guess_image_query({"title": query_seed, "screen": slide.get("screen", "")}, title)
+        output_path = asset_dir / f"slide_{index:02}.jpg"
+        download_pexels_image(query, output_path, api_key, page=index)
+        results.append(f"슬라이드 {index}: 서로 다른 자동 이미지 추가")
+    return results
+
+
+def create_slide_images(slide_text: str, output_dir: Path, asset_dir: Path | None = None) -> list[Path]:
+    from PIL import Image, ImageDraw, ImageFont, ImageOps
+
+    slides = parse_slide_blocks_for_assets(slide_text)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    def load_font(size: int, bold: bool = False):
+        candidates = [
+            Path("C:/Windows/Fonts/malgunbd.ttf" if bold else "C:/Windows/Fonts/malgun.ttf"),
+            Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+            Path("/usr/share/fonts/truetype/noto/NotoSansKR-Bold.ttf" if bold else "/usr/share/fonts/truetype/noto/NotoSansKR-Regular.ttf"),
+            Path("/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf" if bold else "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        ]
+        for path in candidates:
+            if path.exists():
+                try:
+                    return ImageFont.truetype(str(path), size)
+                except OSError:
+                    continue
+        return ImageFont.load_default()
+
+    title_font = load_font(38, bold=True)
+    headline_font = load_font(44, bold=True)
+    body_font = load_font(27)
+    small_font = load_font(20)
+
+    image_paths: list[Path] = []
+    for index, slide in enumerate(slides, 1):
+        canvas = Image.new("RGB", (1280, 720), "#050A18")
+        draw = ImageDraw.Draw(canvas)
+
+        raw_title = slide.get("title", f"슬라이드 {index}").strip() or f"슬라이드 {index}"
+        screen = slide.get("screen", "").strip() or raw_title
+        header_title = screen if index == 1 else raw_title
+        if index == 1 and not header_title.startswith("슬라이드 1"):
+            header_title = f"슬라이드 1. {header_title}"
+
+        draw.rounded_rectangle((44, 34, 1236, 124), radius=18, fill="#111827", outline="#22D3EE", width=2)
+        title_lines = wrap_text_by_width(draw, header_title, title_font, 1110)
+        y = 52
+        for line in title_lines[:2]:
+            draw.text((74, y), line, font=title_font, fill="#F8FAFC")
+            y += 40
+
+        image_box = (54, 150, 568, 592)
+        image_asset = get_slide_asset(asset_dir, index, IMAGE_ASSET_EXTS) if asset_dir else None
+        if image_asset:
+            photo = Image.open(image_asset).convert("RGB")
+            photo = ImageOps.fit(photo, (image_box[2] - image_box[0], image_box[3] - image_box[1]), method=Image.Resampling.LANCZOS)
+            canvas.paste(photo, (image_box[0], image_box[1]))
+            draw.rounded_rectangle(image_box, radius=22, outline="#334155", width=3)
+        else:
+            draw.rounded_rectangle(image_box, radius=22, fill="#0F172A", outline="#334155", width=3)
+            draw.text((92, 326), "HYUNTOP NEWS", font=title_font, fill="#64748B")
+            draw.text((92, 382), "이미지 영역", font=small_font, fill="#94A3B8")
+
+        content_box = (610, 150, 1226, 430)
+        draw.rounded_rectangle(content_box, radius=22, fill="#111827", outline="#334155", width=2)
+        screen_lines = wrap_text_by_width(draw, screen, headline_font, 540)
+        y = 184
+        for line in screen_lines[:5]:
+            draw.text((646, y), line, font=headline_font, fill="#F8FAFC")
+            y += 58
+
+        narration_box = (610, 460, 1226, 642)
+        draw.rounded_rectangle(narration_box, radius=22, fill="#0F172A", outline="#334155", width=2)
+        draw.text((646, 482), "내레이션", font=small_font, fill="#22D3EE")
+        narration = clean_video_narration(slide.get("narration", "").strip())
+        narration_lines = wrap_text_by_width(draw, narration, body_font, 540)
+        y = 518
+        for line in narration_lines[:4]:
+            draw.text((646, y), line, font=body_font, fill="#CBD5E1")
+            y += 36
+
+        draw.text((54, 676), "HYUNTOP NEWS", font=small_font, fill="#64748B")
+        output_path = output_dir / f"slide_{index:02}.png"
+        canvas.save(output_path)
+        image_paths.append(output_path)
+    return image_paths
+
+
 def create_video_package(package_dir: Path) -> Path:
     blog_text = read_text_if_exists(package_dir / "01-blog-post.md")
     slide_text = read_text_if_exists(package_dir / "04-youtube-slides.md")
@@ -803,7 +959,7 @@ def create_mp4_video(package_dir: Path, progress_callback=None) -> Path:
         video_asset = get_slide_asset(asset_dir, index, VIDEO_ASSET_EXTS) if asset_dir.exists() else None
         audio_path = audio_dir / f"slide_{index:02}.wav"
         clip_path = clip_dir / f"clip_{index:02}.mp4"
-        narration = slide.get("narration", "").strip() or slide.get("screen", "").strip() or "다음 내용을 확인해 보겠습니다."
+        narration = clean_video_narration(slide.get("narration", "").strip() or slide.get("screen", "").strip() or "다음 내용을 확인해 보겠습니다.")
 
         if not audio_path.exists():
             asyncio.run(create_tts_audio(narration, audio_path))
