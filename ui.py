@@ -31,7 +31,7 @@ LOG_PATH = BASE_DIR / "logs" / "morning-news.log"
 load_env_file()
 
 DEFAULT_SETTINGS = {
-    "news_query": "怨쇳븰",
+    "news_query": "과학",
     "news_limit": 5,
     "recipient_email": "",
     "notification_channel": "email",
@@ -85,8 +85,27 @@ def read_recent_logs(limit: int = 8) -> list[str]:
 
 
 def looks_broken_text(text: str) -> bool:
-    markers = ["濡", "釉", "댁", "쒖", "竊", "�", "媛", "덈", "꾩", "뱾", "슂"]
-    return sum(text.count(marker) for marker in markers) >= 3
+    markers = ["?댁", "?쒕", "?먮", "?좏", "?꾨", "異", "諛", "遺", "寃", "蹂", "吏", "�"]
+    if any(marker in text for marker in markers):
+        return True
+    return text.count("???") >= 2
+
+
+def rebuild_derivative_files_from_blog(package_dir: Path) -> None:
+    blog_text = read_text_if_exists(package_dir / "01-blog-post.md")
+    derivatives = create_derivative_content_from_blog(
+        blog_text,
+        title=package_dir.name,
+        source="블로그 글 기준 복구",
+    )
+    (package_dir / "02-tistory-post.md").write_text(derivatives["tistory_post"], encoding="utf-8")
+    (package_dir / "03-thread-post.txt").write_text(derivatives["thread_post"], encoding="utf-8")
+    (package_dir / "04-youtube-slides.md").write_text(derivatives["slide_script"], encoding="utf-8")
+    (package_dir / "05-vrew-script.txt").write_text(derivatives["vrew_script"], encoding="utf-8")
+    create_youtube_pptx(derivatives["slide_script"], package_dir / "06-youtube-slides.pptx", package_dir.name)
+    shutil.rmtree(package_dir / "video_package", ignore_errors=True)
+    for old_zip in package_dir.glob("*-video-package.zip"):
+        old_zip.unlink(missing_ok=True)
 
 
 def get_recent_draft(settings: dict) -> str:
@@ -1111,6 +1130,14 @@ def show_content_viewer(settings: dict) -> None:
     if selected_content in editable_labels:
         file_path = package_dir / content_menu[selected_content]
         current_text = read_text_if_exists(file_path)
+        if selected_content != "블로그 글" and looks_broken_text(current_text):
+            st.warning("이 저장 콘텐츠는 예전에 깨진 상태로 만들어졌습니다. 블로그 글 기준으로 다시 만들면 복구됩니다.")
+            if st.button("깨진 글 복구하기", use_container_width=True, key=f"repair_{selected_content}"):
+                rebuild_derivative_files_from_blog(package_dir)
+                st.session_state.pop("video_package_zip", None)
+                st.session_state.pop("mp4_video_path", None)
+                st.success("티스토리, 쓰레드, 유튜브, Vrew 콘텐츠를 다시 만들었습니다.")
+                st.rerun()
         editor_height = 180 if selected_content == "쓰레드" else 560
         file_version = int(file_path.stat().st_mtime) if file_path.exists() else 0
         edited_text = st.text_area(
@@ -1139,19 +1166,7 @@ def show_content_viewer(settings: dict) -> None:
             st.caption("블로그 글을 보강한 뒤 아래 버튼을 누르면 티스토리, 쓰레드, 유튜브, Vrew, PPTX를 다시 만듭니다.")
             if st.button("블로그 글 기준으로 전체 다시 만들기", use_container_width=True):
                 file_path.write_text(edited_text, encoding="utf-8")
-                derivatives = create_derivative_content_from_blog(
-                    edited_text,
-                    title=package_dir.name,
-                    source="블로그 글 직접 수정",
-                )
-                (package_dir / "02-tistory-post.md").write_text(derivatives["tistory_post"], encoding="utf-8")
-                (package_dir / "03-thread-post.txt").write_text(derivatives["thread_post"], encoding="utf-8")
-                (package_dir / "04-youtube-slides.md").write_text(derivatives["slide_script"], encoding="utf-8")
-                (package_dir / "05-vrew-script.txt").write_text(derivatives["vrew_script"], encoding="utf-8")
-                create_youtube_pptx(derivatives["slide_script"], package_dir / "06-youtube-slides.pptx", package_dir.name)
-                shutil.rmtree(package_dir / "video_package", ignore_errors=True)
-                for old_zip in package_dir.glob("*-video-package.zip"):
-                    old_zip.unlink(missing_ok=True)
+                rebuild_derivative_files_from_blog(package_dir)
                 st.session_state.pop("video_package_zip", None)
                 st.session_state.pop("mp4_video_path", None)
                 st.success("블로그 글 기준으로 나머지 콘텐츠를 다시 만들었습니다. 영상은 MP4를 다시 만들면 됩니다.")
