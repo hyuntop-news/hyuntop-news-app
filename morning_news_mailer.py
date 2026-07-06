@@ -1168,7 +1168,7 @@ def create_youtube_pptx(slide_script: str, output_path: Path, title: str) -> str
         narration_box.fill.solid()
         narration_box.fill.fore_color.rgb = panel
         narration_box.line.color.rgb = RGBColor(51, 65, 85)
-        add_pptx_textbox(slide, "?대젅?댁뀡", Inches(1.2), Inches(3.47), Inches(2), Inches(0.28), size=12, bold=True, color=cyan)
+        add_pptx_textbox(slide, "내레이션", Inches(1.2), Inches(3.47), Inches(2), Inches(0.28), size=12, bold=True, color=cyan)
         add_pptx_textbox(slide, slide_info.get("narration", "")[:520], Inches(1.2), Inches(3.9), Inches(10.3), Inches(1.45), size=18, color=white)
         add_footer(slide, index)
 
@@ -1180,14 +1180,14 @@ def create_gemini_blog_post_only(item: NewsItem, article_context: str, use_groun
     global LAST_GEMINI_ERROR
     api_key = get_secret("GEMINI_API_KEY") or get_secret("GOOGLE_API_KEY")
     if not api_key:
-        LAST_GEMINI_ERROR = "Gemini API ?ㅺ? ?놁뼱 濡쒖뺄 ?덈퉬 湲?곌린 ?붿쭊???ъ슜?덉뒿?덈떎."
+        LAST_GEMINI_ERROR = "Gemini API 키가 없어 로컬 예비 글쓰기 엔진을 사용했습니다."
         return None
 
     try:
         from google import genai
         from google.genai import types
     except Exception as exc:
-        LAST_GEMINI_ERROR = f"Gemini ?⑦궎吏瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲?? {exc}"
+        LAST_GEMINI_ERROR = f"Gemini 패키지를 불러오지 못했습니다: {exc}"
         return None
 
     model = get_secret("GEMINI_BLOG_MODEL") or get_secret("GEMINI_MODEL_LOW_COST") or "gemini-2.5-flash"
@@ -1235,7 +1235,7 @@ Collected article/context:
         data = extract_json_object(response.text)
         blog_post = str(data.get("blog_post", "")).strip()
     except Exception as exc:
-        LAST_GEMINI_ERROR = f"Gemini 釉붾줈洹?湲 ?앹꽦 ?ㅽ뙣: {exc}"
+        LAST_GEMINI_ERROR = f"Gemini 블로그 글 생성 실패: {exc}"
         return None
 
     if len(blog_post) < 800:
@@ -1256,8 +1256,8 @@ def create_content_package(item: NewsItem, draft_dir_name: str, low_cost_mode: b
         article_context = item.summary
     else:
         article_context = (
-            "湲곗궗 蹂몃Ц ?꾨Ц? ?쒓났?섏? ?딆븯?? ???ъ떎???낆옄?먭쾶 ?ㅻ챸?섏? 留먭퀬, "
-            "?댁뒪 ?쒕ぉ怨?異쒖쿂瑜?湲媛먯쑝濡??쇱븘 愿??諛곌꼍怨??낆옄 愿?먯쓽 ?댁꽕???먯뿰?ㅻ읇寃??뺤옣?섎씪."
+            "기사 본문 전문은 제공되지 않았습니다. 이 사실을 독자에게 직접 설명하지 말고, "
+            "뉴스 제목과 출처를 글감으로 삼아 관련 배경과 독자 관점의 해설을 자연스럽게 확장하세요."
         )
 
     if low_cost_mode:
@@ -1278,7 +1278,7 @@ def create_content_package(item: NewsItem, draft_dir_name: str, low_cost_mode: b
         if not gemini_content:
             gemini_content = create_local_content_package_data(item, article_context, today)
             if not LAST_GEMINI_ERROR:
-                LAST_GEMINI_ERROR = "Gemini媛 ?묐떟?섏? ?딆븘 濡쒖뺄 ?덈퉬 湲?곌린 ?붿쭊???ъ슜?덉뒿?덈떎."
+                LAST_GEMINI_ERROR = "Gemini가 응답하지 않아 로컬 예비 글쓰기 엔진을 사용했습니다."
 
     blog_post = gemini_content["blog_post"]
     tistory_post = gemini_content["tistory_post"]
@@ -1338,8 +1338,8 @@ def build_email(
     content_package: ContentPackage | None = None,
 ) -> EmailMessage:
     today = datetime.now().strftime("%Y-%m-%d")
-    topic = query or "二쇱슂"
-    subject = f"[?꾩묠 ?댁뒪] {topic} ?댁뒪 {len(items)}媛?- {today}"
+    topic = query or "주요"
+    subject = f"[아침 뉴스] {topic} 뉴스 {len(items)}개 - {today}"
     rows = "\n".join(
         f"""
         <li style="margin-bottom:18px">
@@ -1356,25 +1356,25 @@ def build_email(
     if content_package:
         package_html = f"""
           <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0">
-          <h2>?ㅻ뒛??肄섑뀗痢??⑦궎吏</h2>
-          <p style="color:#667085">?좏깮 ?댁뒪: {html.escape(content_package.news_title)}</p>
-          <h3>1. ?꾪궧??釉붾줈洹?湲</h3>
+          <h2>오늘의 콘텐츠 패키지</h2>
+          <p style="color:#667085">선택 뉴스: {html.escape(content_package.news_title)}</p>
+          <h3>1. 블로그 글</h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.blog_post)}</pre>
-          <h3>2. ?곗뒪?좊━??媛곸깋 湲</h3>
+          <h3>2. 티스토리 각색 글</h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.tistory_post)}</pre>
-          <h3>3. ?곕젅??湲</h3>
+          <h3>3. 쓰레드 글</h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.thread_post)}</pre>
-          <h3>4. ?좏뒠釉??щ씪?대뱶 ?蹂?/h3>
+          <h3>4. 유튜브 슬라이드 대본</h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.slide_script)}</pre>
-          <h3>5. Vrew ?蹂?/h3>
+          <h3>5. Vrew 대본</h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.vrew_script)}</pre>
         """
         package_plain = (
-            f"\n\n[?꾪궧??釉붾줈洹?湲]\n{content_package.blog_post}"
-            f"\n\n[?곗뒪?좊━??媛곸깋 湲]\n{content_package.tistory_post}"
-            f"\n\n[?곕젅??湲]\n{content_package.thread_post}"
-            f"\n\n[?좏뒠釉??щ씪?대뱶 ?蹂?\n{content_package.slide_script}"
-            f"\n\n[Vrew ?蹂?\n{content_package.vrew_script}"
+            f"\n\n[블로그 글]\n{content_package.blog_post}"
+            f"\n\n[티스토리 각색 글]\n{content_package.tistory_post}"
+            f"\n\n[쓰레드 글]\n{content_package.thread_post}"
+            f"\n\n[유튜브 슬라이드 대본]\n{content_package.slide_script}"
+            f"\n\n[Vrew 대본]\n{content_package.vrew_script}"
         )
 
     body = f"""
