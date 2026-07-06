@@ -8,6 +8,7 @@
   "blog_pick_index": 0,
   "blog_draft_dir": "blog_drafts",
   "content_candidate_limit": 10,
+  "low_cost_mode": true,
   "retry_count": 3,
   "retry_delay_seconds": 3,
   "request_timeout_seconds": 15,

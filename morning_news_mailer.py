@@ -1,4 +1,4 @@
-import argparse
+﻿import argparse
 import ast
 import html
 import json
@@ -75,6 +75,14 @@ def load_settings(path: Path = SETTINGS_PATH) -> dict:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
+def as_bool(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def get_secret(name: str) -> str:
@@ -166,7 +174,7 @@ def article_score(item: NewsItem) -> int:
 
 def select_content_item(items: list[NewsItem], preferred_index: int = 0) -> tuple[NewsItem, int, bool]:
     if not items:
-        raise ValueError("선택할 뉴스가 없습니다.")
+        raise ValueError("?좏깮???댁뒪媛 ?놁뒿?덈떎.")
 
     if preferred_index > 0:
         index = min(max(preferred_index, 1), len(items))
@@ -261,7 +269,7 @@ def format_tistory_post(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
 
     if "\n\n" not in text and len(text) > 700:
-        sentences = re.split(r"(?<=[.!?。]|[다요죠까니다습니다])\s+", text)
+        sentences = re.split(r"(?<=[.!???|[?ㅼ슂二좉퉴?덈떎?듬땲??)\s+", text)
         chunks: list[str] = []
         for index in range(0, len(sentences), 3):
             chunk = " ".join(sentence.strip() for sentence in sentences[index:index + 3] if sentence.strip())
@@ -333,14 +341,14 @@ def create_gemini_content(item: NewsItem, article_context: str, use_grounding: b
     LAST_GEMINI_ERROR = ""
     api_key = get_secret("GEMINI_API_KEY")
     if not api_key:
-        LAST_GEMINI_ERROR = "GEMINI_API_KEY가 없습니다."
+        LAST_GEMINI_ERROR = "GEMINI_API_KEY媛 ?놁뒿?덈떎."
         return None
 
     try:
         from google import genai
         from google.genai import types
     except Exception as exc:
-        LAST_GEMINI_ERROR = f"Gemini 패키지를 불러오지 못했습니다: {exc}"
+        LAST_GEMINI_ERROR = f"Gemini ?⑦궎吏瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲?? {exc}"
         return None
 
     model = get_secret("GEMINI_MODEL") or "gemini-2.5-pro"
@@ -352,16 +360,16 @@ Do not write a report, checklist-only memo, or plain news summary. Turn the news
 Most important rules for blog_post:
 - Write a complete Korean blog post of 2800 to 3500 Korean characters.
 - Use the style of a practical 5060 money/life strategy blog.
-- Start with a strong title like "[핵심 키워드] 지금 준비해야 할 이유".
+- Start with a strong title like "[?듭떖 ?ㅼ썙?? 吏湲?以鍮꾪빐?????댁쑀".
 - Opening should directly tell readers why this issue matters to their money, retirement, work, household budget, or future choices.
-- Use numbered sections, for example "1. 뉴스 핵심", "2. 왜 중요한가", "3. 시장과 생활에 미칠 영향", "4. 앞으로 볼 포인트", "5. 체크리스트".
+- Use numbered sections, for example "1. ?댁뒪 ?듭떖", "2. ??以묒슂?쒓?", "3. ?쒖옣怨??앺솢??誘몄튌 ?곹뼢", "4. ?욎쑝濡?蹂??ъ씤??, "5. 泥댄겕由ъ뒪??.
 - Do not include fictional case studies or hypothetical personal examples unless the article itself provides them.
 - Include a checklist near the end with 4 to 6 action items.
-- End with a conclusion and a short "다음에 확인할 것" preview.
+- End with a conclusion and a short "?ㅼ쓬???뺤씤??寃? preview.
 - If article text is limited, do not mention that limitation to readers. Use the title, source, verified context, and general background to write a useful blog-style interpretation.
 - Never use these phrases in blog_post: "???? ??? ??", "??? ??", "?? ??", "?? ??", "??? ??", "???? ???", "?? ??".
 - Do not invent exact numbers, quotes, schedules, company names, or policy names that are not provided.
-- The writing should be confident, practical, and easy to read. Avoid vague filler such as "지켜봐야 합니다" repeated too often.
+- The writing should be confident, practical, and easy to read. Avoid vague filler such as "吏耳쒕킄???⑸땲?? repeated too often.
 
 Return only one valid JSON object. Use exactly these keys:
 blog_post, tistory_post, thread_post, slide_script, vrew_script
@@ -426,11 +434,11 @@ Collected article context:
         except Exception as grounding_exc:
             if not use_grounding:
                 raise
-            LAST_GEMINI_ERROR = f"Google Search grounding 실패, 일반 Gemini로 재시도했습니다: {grounding_exc}"
+            LAST_GEMINI_ERROR = f"Google Search grounding ?ㅽ뙣, ?쇰컲 Gemini濡??ъ떆?꾪뻽?듬땲?? {grounding_exc}"
             response = request_content(False)
         data = extract_json_object(response.text)
     except Exception as exc:
-        LAST_GEMINI_ERROR = f"Gemini 생성 실패: {exc}"
+        LAST_GEMINI_ERROR = f"Gemini ?앹꽦 ?ㅽ뙣: {exc}"
         return None
 
     blog_post = str(data.get("blog_post", "")).strip()[:4200]
@@ -440,7 +448,7 @@ Collected article context:
     vrew_script = str(data.get("vrew_script", "")).strip()
 
     if len(blog_post) < 2500:
-        LAST_GEMINI_ERROR = f"Gemini 응답이 너무 짧습니다: {len(blog_post)}자"
+        LAST_GEMINI_ERROR = f"Gemini blog post was too short: {len(blog_post)} chars"
         return None
 
     forbidden_blog_phrases = [
@@ -448,17 +456,17 @@ Collected article context:
         "정보가 부족",
         "원문 확인",
         "자동 수집",
-        "확인된 범위",
+        "확인한 범위",
         "보강해야 합니다",
         "구체적인 수치",
         "기사 본문",
     ]
     if any(phrase in blog_post for phrase in forbidden_blog_phrases):
-        LAST_GEMINI_ERROR = "Gemini가 블로그 글 대신 보고서식 문장을 만들었습니다."
+        LAST_GEMINI_ERROR = "Gemini媛 釉붾줈洹?湲 ???蹂닿퀬?쒖떇 臾몄옣??留뚮뱾?덉뒿?덈떎."
         return None
 
     if not all([blog_post, tistory_post, thread_post, slide_script, vrew_script]):
-        LAST_GEMINI_ERROR = "Gemini 응답에서 필요한 항목 일부가 비어 있습니다."
+        LAST_GEMINI_ERROR = "Gemini ?묐떟?먯꽌 ?꾩슂????ぉ ?쇰?媛 鍮꾩뼱 ?덉뒿?덈떎."
         return None
 
     return {
@@ -473,11 +481,11 @@ Collected article context:
 def create_derivative_content_from_blog(
     blog_post: str,
     title: str = "",
-    source: str = "직접 편집",
+    source: str = "吏곸젒 ?몄쭛",
     link: str = "",
 ) -> dict[str, str]:
-    title = title.strip() or extract_title_from_text(blog_post, "직접 작성한 블로그 글")
-    source = source.strip() or "직접 편집"
+    title = title.strip() or extract_title_from_text(blog_post, "吏곸젒 ?묒꽦??釉붾줈洹?湲")
+    source = source.strip() or "吏곸젒 ?몄쭛"
     link = link.strip()
     api_key = get_secret("GEMINI_API_KEY")
     data: dict[str, str] | None = None
@@ -488,32 +496,32 @@ def create_derivative_content_from_blog(
 
             model = get_secret("GEMINI_MODEL") or "gemini-2.5-pro"
             prompt = f"""
-너는 한국어 블로그/숏폼 콘텐츠 작가다.
-아래 블로그 글을 기준 원고로 삼아 티스토리 글, 쓰레드, 유튜브 슬라이드 대본, Vrew 대본을 다시 작성하라.
-보고서처럼 요약하지 말고, 독자가 보고 싶어지는 제목과 자연스러운 말투로 각색하라.
-블로그 글에 없는 구체적 숫자, 발언, 일정, 기업명은 지어내지 마라.
-출력은 JSON 객체 하나만 반환하라.
-키는 tistory_post, thread_post, slide_script, vrew_script 네 개만 사용하라.
+?덈뒗 ?쒓뎅??釉붾줈洹??륂뤌 肄섑뀗痢??묎???
+?꾨옒 釉붾줈洹?湲??湲곗? ?먭퀬濡??쇱븘 ?곗뒪?좊━ 湲, ?곕젅?? ?좏뒠釉??щ씪?대뱶 ?蹂? Vrew ?蹂몄쓣 ?ㅼ떆 ?묒꽦?섎씪.
+蹂닿퀬?쒖쿂???붿빟?섏? 留먭퀬, ?낆옄媛 蹂닿퀬 ?띠뼱吏???쒕ぉ怨??먯뿰?ㅻ윭??留먰닾濡?媛곸깋?섎씪.
+釉붾줈洹?湲???녿뒗 援ъ껜???レ옄, 諛쒖뼵, ?쇱젙, 湲곗뾽紐낆? 吏?대궡吏 留덈씪.
+異쒕젰? JSON 媛앹껜 ?섎굹留?諛섑솚?섎씪.
+?ㅻ뒗 tistory_post, thread_post, slide_script, vrew_script ??媛쒕쭔 ?ъ슜?섎씪.
 
-조건:
-- tistory_post: 티스토리 블로그용 각색 글. 검색 유입용 제목, 자연스러운 도입, H2/H3 소제목, 목록, 마무리, 관련 태그 5~8개 포함.
-  티스토리에서 읽기 좋게 제목과 소제목 뒤에는 반드시 빈 줄을 넣고, 긴 문장은 2~4문장 단위의 짧은 문단으로 나누어라.
-  모든 문단 사이에는 빈 줄을 하나 넣어라.
-  체크리스트와 목록은 한 줄에 하나씩 쓰고, 글 전체를 절대 한 덩어리로 이어 쓰지 마라.
-- thread_post: 280~330자, SNS 첫 글처럼 궁금증을 만들 것
-- slide_script: 유튜브 제작용 슬라이드 6장 구성. 반드시 "## 슬라이드 1."부터 "## 슬라이드 6."까지 위에서 아래로 순서대로 작성하고, 각 장마다 "- 화면 문구:"와 "- 내레이션:" 포함. 화면 문구는 짧고 강하게
-- vrew_script: Vrew에 붙여넣기 좋은 자연스러운 말투의 장면별 내레이션 대본. 반드시 "## 슬라이드 1."부터 "## 슬라이드 6."까지 위에서 아래로 순서대로 작성
+議곌굔:
+- tistory_post: ?곗뒪?좊━ 釉붾줈洹몄슜 媛곸깋 湲. 寃???좎엯???쒕ぉ, ?먯뿰?ㅻ윭???꾩엯, H2/H3 ?뚯젣紐? 紐⑸줉, 留덈Т由? 愿???쒓렇 5~8媛??ы븿.
+  ?곗뒪?좊━?먯꽌 ?쎄린 醫뗪쾶 ?쒕ぉ怨??뚯젣紐??ㅼ뿉??諛섎뱶??鍮?以꾩쓣 ?ｊ퀬, 湲?臾몄옣? 2~4臾몄옣 ?⑥쐞??吏㏃? 臾몃떒?쇰줈 ?섎늻?대씪.
+  紐⑤뱺 臾몃떒 ?ъ씠?먮뒗 鍮?以꾩쓣 ?섎굹 ?ｌ뼱??
+  泥댄겕由ъ뒪?몄? 紐⑸줉? ??以꾩뿉 ?섎굹???곌퀬, 湲 ?꾩껜瑜??덈? ???⑹뼱由щ줈 ?댁뼱 ?곗? 留덈씪.
+- thread_post: 280~330?? SNS 泥?湲泥섎읆 沅곴툑利앹쓣 留뚮뱾 寃?
+- slide_script: ?좏뒠釉??쒖옉???щ씪?대뱶 6??援ъ꽦. 諛섎뱶??"## ?щ씪?대뱶 1."遺??"## ?щ씪?대뱶 6."源뚯? ?꾩뿉???꾨옒濡??쒖꽌?濡??묒꽦?섍퀬, 媛??λ쭏??"- ?붾㈃ 臾멸뎄:"? "- ?대젅?댁뀡:" ?ы븿. ?붾㈃ 臾멸뎄??吏㏐퀬 媛뺥븯寃?
+- vrew_script: Vrew??遺숈뿬?ｊ린 醫뗭? ?먯뿰?ㅻ윭??留먰닾???λ㈃蹂??대젅?댁뀡 ?蹂? 諛섎뱶??"## ?щ씪?대뱶 1."遺??"## ?щ씪?대뱶 6."源뚯? ?꾩뿉???꾨옒濡??쒖꽌?濡??묒꽦
 
-제목:
+?쒕ぉ:
 {title}
 
-원문 출처:
+?먮Ц 異쒖쿂:
 {source}
 
-원문 링크:
+?먮Ц 留곹겕:
 {link}
 
-기준 블로그 글:
+湲곗? 釉붾줈洹?湲:
 {blog_post[:6000]}
 """
             client = genai.Client(api_key=api_key)
@@ -548,9 +556,9 @@ def ensure_thread_length(thread_post: str, title: str, context: str) -> str:
     context_preview = " ".join((context or "").split())[:130]
     expanded = (
         f"{thread_post} "
-        f"핵심은 '{title}' 이슈를 단순한 뉴스로 넘기지 않고, 배경과 실제 영향, 다음 움직임까지 함께 보는 것입니다. "
+        f"?듭떖? '{title}' ?댁뒋瑜??⑥닚???댁뒪濡??섍린吏 ?딄퀬, 諛곌꼍怨??ㅼ젣 ?곹뼢, ?ㅼ쓬 ?吏곸엫源뚯? ?④퍡 蹂대뒗 寃껋엯?덈떎. "
         f"{context_preview} "
-        "지금은 결론보다 확인할 포인트를 정리해두는 것이 중요합니다."
+        "吏湲덉? 寃곕줎蹂대떎 ?뺤씤???ъ씤?몃? ?뺣━?대몢??寃껋씠 以묒슂?⑸땲??"
     )
     return " ".join(expanded.split())[:330]
 
@@ -569,56 +577,56 @@ def fallback_derivative_content_from_blog(blog_post: str, item: NewsItem) -> dic
     preview = " ".join(blog_post.split())[:900]
     tistory_post = f"""# {title}
 
-## 핵심 요약
+## ?듭떖 ?붿빟
 
 {preview}
 
-## 왜 주목해야 할까?
+## ??二쇰ぉ?댁빞 ?좉퉴?
 
-이 글의 핵심은 단순한 뉴스 전달이 아니라, 독자가 지금 확인해야 할 변화의 흐름을 정리하는 데 있습니다. 본문에서 다룬 배경과 영향, 앞으로의 움직임을 나누어 보면 더 명확하게 이해할 수 있습니다.
+??湲???듭떖? ?⑥닚???댁뒪 ?꾨떖???꾨땲?? ?낆옄媛 吏湲??뺤씤?댁빞 ??蹂?붿쓽 ?먮쫫???뺣━?섎뒗 ???덉뒿?덈떎. 蹂몃Ц?먯꽌 ?ㅻ， 諛곌꼍怨??곹뼢, ?욎쑝濡쒖쓽 ?吏곸엫???섎늻??蹂대㈃ ??紐낇솗?섍쾶 ?댄빐?????덉뒿?덈떎.
 
-## 확인할 포인트
+## ?뺤씤???ъ씤??
 
-- 이 이슈가 시작된 배경
-- 관련 시장과 생활에 미칠 영향
-- 앞으로 나올 후속 발표나 반응
+- ???댁뒋媛 ?쒖옉??諛곌꼍
+- 愿???쒖옣怨??앺솢??誘몄튌 ?곹뼢
+- ?욎쑝濡??섏삱 ?꾩냽 諛쒗몴??諛섏쓳
 
-## 마무리
+## 留덈Т由?
 
-정확한 판단을 위해서는 원문과 추가 자료를 함께 확인하는 것이 좋습니다. 지금은 변화의 방향을 먼저 이해하고, 다음 움직임을 차분히 지켜볼 시점입니다.
+?뺥솗???먮떒???꾪빐?쒕뒗 ?먮Ц怨?異붽? ?먮즺瑜??④퍡 ?뺤씤?섎뒗 寃껋씠 醫뗭뒿?덈떎. 吏湲덉? 蹂?붿쓽 諛⑺뼢??癒쇱? ?댄빐?섍퀬, ?ㅼ쓬 ?吏곸엫??李⑤텇??吏耳쒕낵 ?쒖젏?낅땲??
 
-### 관련 태그
+### 愿???쒓렇
 
-#뉴스정리 #이슈분석 #경제뉴스 #콘텐츠제작 #티스토리 #블로그글쓰기
+#?댁뒪?뺣━ #?댁뒋遺꾩꽍 #寃쎌젣?댁뒪 #肄섑뀗痢좎젣??#?곗뒪?좊━ #釉붾줈洹멸??곌린
 """
     thread_post = (
-        f"{title} 이 이슈는 단순한 뉴스 한 줄보다 앞으로의 흐름을 보여주는 신호에 가깝습니다. "
-        "핵심은 배경, 실제 영향, 다음 움직임을 함께 보는 것입니다. 지금 확인할 포인트를 정리해두면 이후 변화에 더 빠르게 대응할 수 있습니다."
+        f"{title} ???댁뒋???⑥닚???댁뒪 ??以꾨낫???욎쑝濡쒖쓽 ?먮쫫??蹂댁뿬二쇰뒗 ?좏샇??媛源앹뒿?덈떎. "
+        "?듭떖? 諛곌꼍, ?ㅼ젣 ?곹뼢, ?ㅼ쓬 ?吏곸엫???④퍡 蹂대뒗 寃껋엯?덈떎. 吏湲??뺤씤???ъ씤?몃? ?뺣━?대몢硫??댄썑 蹂?붿뿉 ??鍮좊Ⅴ寃???묓븷 ???덉뒿?덈떎."
     )
-    slide_script = f"""# 유튜브 슬라이드 대본
-## 슬라이드 1. 오프닝
-- 화면 문구: 지금 확인해야 할 이슈
-- 내레이션: 오늘은 "{title}" 이슈를 핵심만 빠르게 정리해 보겠습니다.
+    slide_script = f"""# ?좏뒠釉??щ씪?대뱶 ?蹂?
+## ?щ씪?대뱶 1. ?ㅽ봽??
+- ?붾㈃ 臾멸뎄: 吏湲??뺤씤?댁빞 ???댁뒋
+- ?대젅?댁뀡: ?ㅻ뒛? "{title}" ?댁뒋瑜??듭떖留?鍮좊Ⅴ寃??뺣━??蹂닿쿋?듬땲??
 
-## 슬라이드 2. 핵심 내용
-- 화면 문구: 무엇이 달라졌나
-- 내레이션: 블로그 글에서 정리한 핵심은 다음과 같습니다. {preview[:220]}
+## ?щ씪?대뱶 2. ?듭떖 ?댁슜
+- ?붾㈃ 臾멸뎄: 臾댁뾿???щ씪議뚮굹
+- ?대젅?댁뀡: 釉붾줈洹?湲?먯꽌 ?뺣━???듭떖? ?ㅼ쓬怨?媛숈뒿?덈떎. {preview[:220]}
 
-## 슬라이드 3. 왜 중요한가
-- 화면 문구: 중요한 이유
-- 내레이션: 이 이슈는 관련 시장과 우리의 선택에 영향을 줄 수 있기 때문에 흐름을 함께 봐야 합니다.
+## ?щ씪?대뱶 3. ??以묒슂?쒓?
+- ?붾㈃ 臾멸뎄: 以묒슂???댁쑀
+- ?대젅?댁뀡: ???댁뒋??愿???쒖옣怨??곕━???좏깮???곹뼢??以????덇린 ?뚮Ц???먮쫫???④퍡 遊먯빞 ?⑸땲??
 
-## 슬라이드 4. 꼭 볼 포인트
-- 화면 문구: 배경, 영향, 후속 움직임
-- 내레이션: 배경이 무엇인지, 실제 영향은 어디까지인지, 다음에 어떤 움직임이 나올지 확인해야 합니다.
+## ?щ씪?대뱶 4. 瑗?蹂??ъ씤??
+- ?붾㈃ 臾멸뎄: 諛곌꼍, ?곹뼢, ?꾩냽 ?吏곸엫
+- ?대젅?댁뀡: 諛곌꼍??臾댁뾿?몄?, ?ㅼ젣 ?곹뼢? ?대뵒源뚯??몄?, ?ㅼ쓬???대뼡 ?吏곸엫???섏삱吏 ?뺤씤?댁빞 ?⑸땲??
 
-## 슬라이드 5. 대응 방법
-- 화면 문구: 지금 준비할 것
-- 내레이션: 성급한 결론보다 확인된 정보와 반대 관점을 함께 보고 판단하는 것이 좋습니다.
+## ?щ씪?대뱶 5. ???諛⑸쾿
+- ?붾㈃ 臾멸뎄: 吏湲?以鍮꾪븷 寃?
+- ?대젅?댁뀡: ?깃툒??寃곕줎蹂대떎 ?뺤씤???뺣낫? 諛섎? 愿?먯쓣 ?④퍡 蹂닿퀬 ?먮떒?섎뒗 寃껋씠 醫뗭뒿?덈떎.
 
-## 슬라이드 6. 마무리
-- 화면 문구: 다음 변화가 중요합니다
-- 내레이션: 오늘 내용이 도움이 되셨다면 다음 흐름도 함께 확인해 보세요.
+## ?щ씪?대뱶 6. 留덈Т由?
+- ?붾㈃ 臾멸뎄: ?ㅼ쓬 蹂?붽? 以묒슂?⑸땲??
+- ?대젅?댁뀡: ?ㅻ뒛 ?댁슜???꾩????섏뀲?ㅻ㈃ ?ㅼ쓬 ?먮쫫???④퍡 ?뺤씤??蹂댁꽭??
 """
     return {
         "tistory_post": format_tistory_post(tistory_post)[:4500],
@@ -629,159 +637,39 @@ def fallback_derivative_content_from_blog(blog_post: str, item: NewsItem) -> dic
 
 
 def create_local_content_package_data(item: NewsItem, article_context: str, today: str) -> dict[str, str]:
-    title = item.title.strip() or "오늘의 주요 뉴스"
+    title = _clean_news_title(item.title)
     source = item.source.strip() or "뉴스"
     link = item.link.strip()
-    context = " ".join((article_context or item.summary or "").split())
-    blocked_context_fragments = [
-        "기사 본문 전문은 제공되지 않았다",
-        "이 사실을 독자에게 설명하지 말고",
-        "뉴스 제목과 출처를 글감으로 삼아",
-        "관련 배경과 독자 관점의 해설",
-    ]
-    if any(fragment in context for fragment in blocked_context_fragments):
-        context = ""
-    if not context:
-        context = (
-            f"{title} 이슈는 정책, 산업, 시장 분위기와 연결될 수 있는 소식입니다. "
-            "지금은 단정적인 결론보다 배경과 앞으로의 흐름을 차분히 보는 것이 중요합니다."
-        )
+    context = " ".join((article_context or item.summary or title).split())
+    blog_post = f"""# {title}
 
-    is_real_estate = any(keyword in title for keyword in ["부동산", "종부세", "양도세", "장특공", "주택", "아파트"])
-    if is_real_estate:
-        blog_post = f"""# [부동산 세금 점검] {title}
+이 뉴스는 오늘 흐름을 읽을 때 그냥 넘기기 어려운 이슈입니다.
 
-부동산 정책 뉴스는 제목만 보고 넘기기 쉽습니다. 하지만 세금과 보유 규칙이 움직이기 시작하면 이야기는 달라집니다. 집을 가진 사람에게는 보유 비용의 문제가 되고, 갈아타기를 고민하는 사람에게는 매도 시점의 문제가 되며, 아직 집을 사지 않은 사람에게는 시장 진입 타이밍의 문제가 됩니다.
+{context}
 
-이번에 확인할 뉴스는 "{title}"입니다. 출처는 {source}입니다. 핵심은 부동산 시장을 바라보는 정부의 시선이 어디로 향하고 있는지입니다. 종부세, 양도세, 장기보유특별공제처럼 세금과 직접 연결된 제도가 언급되는 뉴스라면 단순한 정치 뉴스가 아니라 가계 자산 전략의 신호로 봐야 합니다.
+## 왜 지금 봐야 할까
 
-## 1. 뉴스 핵심: 보유와 매도의 계산식이 바뀔 수 있습니다
+제목 하나만 보면 단순한 소식처럼 보일 수 있지만, 실제로는 정책, 시장, 생활비, 자산 판단과 연결될 수 있습니다. 그래서 지금 필요한 것은 빠른 결론보다 차분한 점검입니다.
 
-부동산 세제는 시장 참여자의 행동을 바꾸는 강한 장치입니다. 보유세가 강화되면 다주택자나 고가주택 보유자는 매년 부담해야 하는 비용을 다시 계산하게 됩니다. 반대로 양도세나 장기보유특별공제 기준이 바뀌면 매도 시점, 보유 기간, 증여와 상속 계획까지 다시 점검해야 합니다.
+## 확인할 것
 
-이번 뉴스에서 중요한 대목은 특정 세목 하나가 아니라 여러 세제가 함께 거론된다는 점입니다. 종부세는 보유 부담과 연결되고, 양도세는 매도 판단과 연결되며, 장기보유특별공제는 오래 보유한 사람의 세후 수익률과 연결됩니다. 세 가지가 동시에 논의된다면 시장은 단순히 "세금이 오른다"가 아니라 "어떤 보유자가 움직일 것인가"를 보게 됩니다.
+첫째, 이 변화가 갑자기 나온 것인지 이전부터 이어진 흐름의 결과인지 확인해야 합니다.
 
-## 2. 왜 중요한가: 부동산은 가격보다 세후 현금흐름이 중요합니다
+둘째, 실제 부담이 누구에게 이동하는지 살펴야 합니다.
 
-부동산 투자는 매수가와 매도가만 보면 절반만 보는 것입니다. 실제 손에 남는 돈은 세금, 이자, 관리비, 보유 기간, 대출 조건을 모두 뺀 뒤 결정됩니다. 특히 5060 세대라면 더 그렇습니다. 은퇴 전후의 자산은 한 번 잘못 움직이면 다시 회복할 시간이 짧기 때문에 세후 현금흐름을 먼저 봐야 합니다.
+셋째, 다음 정책 발표와 시장 반응을 함께 봐야 합니다.
 
-집값이 그대로여도 보유세가 늘면 체감 수익률은 낮아집니다. 매도 차익이 커 보여도 양도세 부담이 커지면 실제 남는 돈은 줄어듭니다. 장기보유특별공제 조건이 손질되면 "오래 들고 있으면 유리하다"는 기존 공식도 다시 계산해야 합니다.
+## 마무리
 
-## 3. 시장과 생활에 미칠 영향
-
-첫째, 매물 출회 시점이 달라질 수 있습니다. 세금 부담이 커질 것으로 예상되면 일부 보유자는 정책 시행 전 매도를 검토할 수 있습니다. 반대로 세부 기준이 불확실하면 시장은 잠시 관망세로 돌아설 가능성도 있습니다.
-
-둘째, 갈아타기 전략이 더 복잡해집니다. 기존 주택을 팔고 새 주택을 사려는 사람은 양도세와 취득 비용, 대출 규제, 보유 기간을 함께 봐야 합니다. 단순히 좋은 집으로 옮기는 문제가 아니라 세후 자금 계획이 맞는지 확인해야 합니다.
-
-셋째, 임대 시장에도 파장이 생길 수 있습니다. 보유 부담이 커진 집주인이 비용을 임대료에 반영하려 할 수 있고, 일부는 보유 주택을 줄이는 선택을 할 수도 있습니다. 이런 변화는 전월세 시장의 분위기에도 영향을 줄 수 있습니다.
-
-## 4. 지금 당장 확인할 것
-
-이번 뉴스는 아직 구체적인 최종안보다 방향성을 읽는 단계에 가깝습니다. 그래서 지금 필요한 것은 섣부른 매수나 매도가 아니라 내 상황을 기준으로 한 사전 점검입니다.
-
-- 내가 보유한 주택이 종부세 논의 대상에 들어갈 가능성이 있는가?
-- 매도한다면 양도세와 장기보유특별공제 적용 후 실제 남는 금액은 얼마인가?
-- 임대 수입이 있다면 세금과 건강보험료까지 고려한 순현금흐름은 괜찮은가?
-- 갈아타기를 계획 중이라면 정책 발표 전후로 자금 일정이 흔들리지 않는가?
-- 부부 공동명의, 증여, 상속 계획이 있다면 세제 변화에 따라 다시 계산해야 하는가?
-
-## 5. 결론: 정책 뉴스는 내 자산표로 가져와야 합니다
-
-부동산 세금 뉴스는 멀리 있는 이야기가 아닙니다. 종부세, 양도세, 장기보유특별공제는 결국 내 통장에 남는 돈을 바꾸는 항목입니다. 그래서 중요한 것은 뉴스 제목에 반응하는 것이 아니라 내 보유 주택, 대출, 임대 수입, 매도 계획에 대입해 보는 것입니다.
-
-지금은 결론을 단정하기보다 정책의 방향과 세부안을 함께 확인해야 할 시점입니다. 다음에 볼 것은 최종 세율이나 공제율보다 "누가 부담을 더 지게 되는가", "어떤 보유자가 매물을 내놓게 되는가", "실수요자의 갈아타기 비용은 얼마나 달라지는가"입니다. 이 세 가지를 기준으로 보면 이번 부동산 세제 뉴스가 훨씬 선명하게 보입니다.
+이번 뉴스는 하나의 신호일 수 있습니다. 후속 기사와 실제 변화를 함께 보면서 내 생활과 자산 계획에 어떤 영향을 줄지 점검해 보겠습니다.
 
 출처: {source}
 원문: {link}
 확인일: {today}
-""".strip()
-    else:
-        blog_post = f"""# [뉴스 해설] {title}
-
-뉴스를 볼 때 중요한 것은 제목을 외우는 것이 아니라 그 뉴스가 내 생활과 어떤 방식으로 연결되는지 읽는 것입니다. 오늘의 이슈도 마찬가지입니다. 겉으로는 하나의 사건처럼 보이지만, 그 안에는 정책의 방향, 시장의 반응, 사람들의 선택이 함께 들어 있습니다.
-
-이번에 살펴볼 소식은 "{title}"입니다. 출처는 {source}입니다. 이 뉴스는 단순히 지나가는 소식이 아니라 앞으로의 흐름을 가늠하게 만드는 신호로 볼 수 있습니다.
-
-## 1. 뉴스 핵심
-
-이 이슈의 핵심은 제목에 담긴 변화의 방향입니다. 정책, 산업, 시장, 생활의 변화가 한곳에서 만날 때 뉴스는 단순한 정보가 아니라 앞으로 무엇을 봐야 하는지 알려주는 단서가 됩니다.
-
-## 2. 왜 중요한가
-
-이런 뉴스는 시간이 지나면서 비용, 선택, 투자 심리, 소비 흐름으로 이어질 수 있습니다. 처음에는 작게 보이지만 후속 조치가 나오면 영향 범위가 넓어질 수 있습니다.
-
-## 3. 시장과 생활에 미칠 영향
-
-가장 먼저 봐야 할 것은 누가 직접 영향을 받는지입니다. 관련 업계만의 문제인지, 일반 소비자와 가계에도 영향을 주는지 구분해야 합니다. 그다음에는 비용이 늘어나는 쪽과 기회가 생기는 쪽을 나눠서 봐야 합니다.
-
-## 4. 앞으로 볼 포인트
-
-- 후속 정책이나 발표가 이어지는가?
-- 관련 기업이나 시장이 어떻게 반응하는가?
-- 소비자 비용이나 생활 방식에 변화가 생기는가?
-- 단기 이슈인지 구조 변화의 시작인지 확인할 수 있는가?
-
-## 5. 마무리
-
-이번 뉴스는 단순히 오늘 하루 소비하고 끝낼 소식이 아닐 수 있습니다. 지금 필요한 것은 빠른 결론보다 차분한 확인입니다. 이어지는 뉴스와 시장 반응을 함께 보면 이 이슈가 얼마나 큰 흐름인지 더 분명하게 판단할 수 있습니다.
-
-출처: {source}
-원문: {link}
-확인일: {today}
-""".strip()
-
-    tistory_post = f"""# {title}, 지금 주목해야 하는 이유
-
-## 이 뉴스가 던지는 질문
-
-{blog_post}
-
-## 관련 태그
-
-#뉴스 #경제뉴스 #이슈분석 #생활경제 #정책흐름 #블로그글쓰기 #오늘의뉴스
-""".strip()
-
-    thread_post = ensure_thread_length(
-        f"{title} 소식은 단순한 뉴스 제목으로만 넘기기엔 아쉽습니다. 중요한 건 사건 자체보다 그 뒤에 있는 흐름입니다. 누가 영향을 받고, 어떤 부담이나 기회가 생기며, 다음 변화가 어디서 나올지 함께 봐야 합니다.",
-        title,
-        blog_post,
-    )
-
-    slide_script = f"""# 유튜브 슬라이드 대본
-
-## 슬라이드 1. 오늘의 이슈
-- 화면 문구: {title[:45]}
-- 내레이션: 오늘은 이 뉴스를 그냥 넘기면 안 되는 이유를 짧게 정리해 보겠습니다.
-
-## 슬라이드 2. 핵심 흐름
-- 화면 문구: 제목 뒤의 흐름을 봐야 합니다
-- 내레이션: 뉴스는 한 문장으로 보이지만, 그 뒤에는 시장과 사람들의 선택이 함께 움직입니다.
-
-## 슬라이드 3. 왜 중요한가
-- 화면 문구: 생활과 연결될 수 있습니다
-- 내레이션: 이런 이슈는 시간이 지나면서 가격, 정책, 소비, 일자리 같은 생활 문제로 이어질 수 있습니다.
-
-## 슬라이드 4. 확인할 점
-- 화면 문구: 배경, 영향, 다음 움직임
-- 내레이션: 일시적인 사건인지, 영향 범위가 어디까지인지, 이후 대응이 어떻게 나오는지 봐야 합니다.
-
-## 슬라이드 5. 지금 필요한 태도
-- 화면 문구: 빠른 결론보다 차분한 관찰
-- 내레이션: 단정하기보다 이어지는 기사와 현장의 반응을 함께 확인하는 것이 좋습니다.
-
-## 슬라이드 6. 마무리
-- 화면 문구: 다음 변화를 봐야 합니다
-- 내레이션: 오늘의 뉴스가 내일 어떤 변화로 이어질지 계속 지켜보겠습니다.
-""".strip()
-
-    return {
-        "blog_post": blog_post[:4200],
-        "tistory_post": format_tistory_post(tistory_post)[:4500],
-        "thread_post": thread_post,
-        "slide_script": slide_script,
-        "vrew_script": slide_script,
-    }
-
+"""
+    derivatives = fallback_derivative_content_from_blog(blog_post, item)
+    derivatives["blog_post"] = blog_post
+    return derivatives
 
 def ensure_blog_min_length(blog_post: str, item: NewsItem, article_context: str, today: str) -> str:
     blog_post = (blog_post or "").strip()
@@ -790,69 +678,65 @@ def ensure_blog_min_length(blog_post: str, item: NewsItem, article_context: str,
 
     context = " ".join((article_context or "").split())
     if not context:
-        context = "자동 수집만으로는 기사 본문을 충분히 가져오지 못했습니다. 원문 링크를 열어 발언, 일정, 배경 정보를 확인한 뒤 보강해야 합니다."
+        context = "?먮룞 ?섏쭛留뚯쑝濡쒕뒗 湲곗궗 蹂몃Ц??異⑸텇??媛?몄삤吏 紐삵뻽?듬땲?? ?먮Ц 留곹겕瑜??댁뼱 諛쒖뼵, ?쇱젙, 諛곌꼍 ?뺣낫瑜??뺤씤????蹂닿컯?댁빞 ?⑸땲??"
 
-    title = item.title.strip() or "오늘의 주요 뉴스"
-    source = item.source.strip() or "뉴스"
+    title = item.title.strip() or "?ㅻ뒛??二쇱슂 ?댁뒪"
+    source = item.source.strip() or "?댁뒪"
     link = item.link.strip()
 
     expansion = f"""
 
-## 그래서 지금 왜 봐야 할까요
+## 洹몃옒??吏湲???遊먯빞 ?좉퉴??
+?댁뒪瑜?蹂???媛???꾩돩???쒓컙? ?쒕ぉ留?蹂닿퀬 吏?섏낀?붾뜲, 硫곗튌 ??洹??쇱씠 ?앺솢鍮꾨굹 ?ъ옄 ?щ━, ?쇱옄由? 湲곗뾽 遺꾩쐞湲곗? ?곌껐?섏뼱 ?덉뿀?ㅻ뒗 ?ъ떎???ㅻ뒭寃?源⑤떕???뚯엯?덈떎. ?대쾲 ?댁뒋??鍮꾩듂?⑸땲?? ?쒕㈃?곸쑝濡쒕뒗 ?섎굹??湲곗궗泥섎읆 蹂댁씠吏留? 洹??덉뿉???щ엺?ㅼ씠 臾댁뾿??嫄깆젙?섍퀬 臾댁뾿??湲곕??섎뒗吏 蹂댁뿬二쇰뒗 ?먮쫫???ㅼ뼱 ?덉뒿?덈떎.
 
-뉴스를 볼 때 가장 아쉬운 순간은 제목만 보고 지나쳤는데, 며칠 뒤 그 일이 생활비나 투자 심리, 일자리, 기업 분위기와 연결되어 있었다는 사실을 뒤늦게 깨닫는 때입니다. 이번 이슈도 비슷합니다. 표면적으로는 하나의 기사처럼 보이지만, 그 안에는 사람들이 무엇을 걱정하고 무엇을 기대하는지 보여주는 흐름이 들어 있습니다.
+?대쾲 ?뚯떇??異쒕컻?먯? {title}?낅땲?? {source}?먯꽌 ?꾪븳 ???먮쫫? ?⑥닚???ш굔 ?뚭컻??洹몄튂吏 ?딄퀬, ?욎쑝濡?愿???쒖옣怨??뺤콉, ?뚮퉬???좏깮???대뼡 ?곹뼢??以꾩? ?앷컖?섍쾶 留뚮벊?덈떎. {context[:500]}
 
-이번 소식의 출발점은 {title}입니다. {source}에서 전한 이 흐름은 단순한 사건 소개에 그치지 않고, 앞으로 관련 시장과 정책, 소비자 선택에 어떤 영향을 줄지 생각하게 만듭니다. {context[:500]}
+以묒슂??寃껋? ???댁뒪瑜??⑥닚??醫뗫떎, ?섏걯?ㅻ줈 ?먮떒?섏? ?딅뒗 寃껋엯?덈떎. ?대뼡 ?댁뒋??泥섏쓬?먮뒗 ?묎쾶 蹂댁엯?덈떎. ?섏?留??쒓컙??吏?섎㈃ 鍮꾩슜, ?섏슂, ?뺤콉 諛⑺뼢, 湲곗뾽 ?꾨왂 媛숈? ?꾩떎?곸씤 臾몄젣濡??댁뼱吏????덉뒿?덈떎. 洹몃옒??吏湲??꾩슂??寃껋? ?깃툒??寃곕줎蹂대떎 李⑤텇???댁꽍?낅땲??
 
-중요한 것은 이 뉴스를 단순히 좋다, 나쁘다로 판단하지 않는 것입니다. 어떤 이슈든 처음에는 작게 보입니다. 하지만 시간이 지나면 비용, 수요, 정책 방향, 기업 전략 같은 현실적인 문제로 이어질 수 있습니다. 그래서 지금 필요한 것은 성급한 결론보다 차분한 해석입니다.
+## ?쒕ぉ蹂대떎 諛곌꼍??癒쇱? 遊먯빞 ?⑸땲??
+?댁뒪瑜?蹂???媛??癒쇱? ?뺤씤?댁빞 ??寃껋? ??吏湲????댁빞湲곌? ?섏솕?붽??낅땲?? 媛묒옄湲??깆옣??寃껋쿂??蹂댁씠???댁뒋???ㅼ젣濡쒕뒗 ?댁쟾遺???볦뿬 ???먮쫫??寃곌낵??寃쎌슦媛 留롮뒿?덈떎. ?뺤콉 蹂?? ?쒖옣 ?щ━, 湲곗뾽 ?ㅼ쟻, 援?젣 ?뺤꽭, 湲곗닠 蹂?? ?뚮퉬???됰룞 媛숈? ?붿씤??寃뱀튂硫댁꽌 ?대뒓 ?쒓컙 ?댁뒪濡??곗졇 ?섏삤???앹엯?덈떎.
 
-## 제목보다 배경을 먼저 봐야 합니다
+?곕씪????湲곗궗瑜??쎌쓣 ?뚮룄 ?⑥닚???쒕ぉ留?蹂닿퀬 醫뗫떎, ?섏걯?ㅻ? ?먮떒?섍린蹂대떎 洹?諛곌꼍???④퍡 遊먯빞 ?⑸땲?? ?대뼡 ?댄빐愿怨꾩옄媛 ?吏곸??붿?, ?대뼡 ?쒕룄???쒖옣 議곌굔???곹뼢??以щ뒗吏, ?댁쟾 湲곗궗?ㅺ낵 鍮꾧탳?덉쓣 ???щ씪吏??먯? 臾댁뾿?몄? ?뺤씤?댁빞 ?⑸땲?? 諛곌꼍??蹂대㈃ 湲곗궗 ?섎굹媛 ?꾨땲???먮쫫??蹂댁엯?덈떎.
 
-뉴스를 볼 때 가장 먼저 확인해야 할 것은 왜 지금 이 이야기가 나왔는가입니다. 갑자기 등장한 것처럼 보이는 이슈도 실제로는 이전부터 쌓여 온 흐름의 결과인 경우가 많습니다. 정책 변화, 시장 심리, 기업 실적, 국제 정세, 기술 변화, 소비자 행동 같은 요인이 겹치면서 어느 순간 뉴스로 터져 나오는 식입니다.
+## ?ㅼ젣 ?곹뼢? ?대뵒源뚯? 媛덇퉴??
+??踰덉㎏???곹뼢 踰붿쐞?낅땲?? 紐⑤뱺 ?댁뒪媛 紐⑤뱺 ?щ엺?먭쾶 媛숈? 臾닿쾶濡??ㅺ??ㅼ????딆뒿?덈떎. ?대뼡 ?댁뒪???뱀젙 ?낃퀎?먮쭔 ?곹뼢??二쇨퀬, ?대뼡 ?댁뒪???뚮퉬??臾쇨????ъ옄 ?щ━泥섎읆 ?곕━ ?쇱긽怨?吏곸젒 ?곌껐?⑸땲?? ???대뼡 ?댁뒪???뱀옣 ??蹂?붽? ?놁뼱 蹂댁뿬??紐??????뺤콉?대굹 ?쒖옣 媛寃⑹뿉 諛섏쁺?섍린???⑸땲??
 
-따라서 이 기사를 읽을 때도 단순히 제목만 보고 좋다, 나쁘다를 판단하기보다 그 배경을 함께 봐야 합니다. 어떤 이해관계자가 움직였는지, 어떤 제도나 시장 조건이 영향을 줬는지, 이전 기사들과 비교했을 때 달라진 점은 무엇인지 확인해야 합니다. 배경을 보면 기사 하나가 아니라 흐름이 보입니다.
+???댁뒋??留덉갔媛吏?낅땲?? 愿???낃퀎, ?ъ옄?? ?뚮퉬?? ?뺤콉 ?대떦?먯뿉寃?媛곴컖 ?대뼡 ?섎?媛 ?덈뒗吏 ?섎닠??遊먯빞 ?⑸땲?? ?뱁엳 ?덉쓽 ?먮쫫, 鍮꾩슜 援ъ“, ?섏슂 蹂?? 洹쒖젣 媛?μ꽦, 寃쎌웳 援щ룄? ?곌껐?섎뒗 遺遺꾩씠 ?덈떎硫?洹??곹뼢? ?앷컖蹂대떎 ?ㅻ옒媛????덉뒿?덈떎.
 
-## 실제 영향은 어디까지 갈까요
+## ?レ옄蹂대떎 諛⑺뼢??癒쇱? ?쎌뼱???⑸땲??
+?댁뒪?먯꽌 ?レ옄??以묒슂?섏?留? ?レ옄 ?섎굹留뚯쑝濡??꾩껜瑜??먮떒?섎㈃ ?꾪뿕?⑸땲?? 以묒슂??寃껋? 諛⑺뼢?낅땲?? 醫뗭븘吏怨??덈뒗吏, ?섎튌吏怨??덈뒗吏, ?띾룄媛 鍮⑤씪吏?붿?, ?쒖옣??諛섏쓳???쇱떆?곸씤吏 吏?띿쟻?몄? 遊먯빞 ?⑸땲?? 援ъ껜?곸씤 ?섏튂媛 遺議깊븳 湲곗궗?쇱닔濡??붾뜑??諛⑺뼢?깆쓣 癒쇱? ?뺤씤?댁빞 ?⑸땲??
 
-두 번째는 영향 범위입니다. 모든 뉴스가 모든 사람에게 같은 무게로 다가오지는 않습니다. 어떤 뉴스는 특정 업계에만 영향을 주고, 어떤 뉴스는 소비자 물가나 투자 심리처럼 우리 일상과 직접 연결됩니다. 또 어떤 뉴스는 당장 큰 변화가 없어 보여도 몇 달 뒤 정책이나 시장 가격에 반영되기도 합니다.
+?먮Ц 湲곗궗?먯꽌 異붽?濡??뺤씤?섎㈃ 醫뗭? 寃껋? ??媛吏?낅땲?? 泥レ㎏, ?ㅼ젣 ?섏튂???쇱젙?낅땲?? ?섏㎏, 愿怨꾩옄 諛쒖뼵?낅땲?? ?뗭㎏, ?댄썑 ?꾩냽 議곗튂?낅땲?? ????媛吏媛 ?뺤씤?섎㈃ ?댁뒪??臾닿쾶媛 ?⑥뵮 ?좊챸?댁쭛?덈떎. 諛섎?濡?????媛吏媛 鍮꾩뼱 ?덈떎硫??깃툒???먮떒???쇳븯??寃껋씠 醫뗭뒿?덈떎.
 
-이 이슈도 마찬가지입니다. 관련 업계, 투자자, 소비자, 정책 담당자에게 각각 어떤 의미가 있는지 나눠서 봐야 합니다. 특히 돈의 흐름, 비용 구조, 수요 변화, 규제 가능성, 경쟁 구도와 연결되는 부분이 있다면 그 영향은 생각보다 오래갈 수 있습니다.
+## ??먭쾶 ?⑤뒗 吏덈Ц
 
-## 숫자보다 방향을 먼저 읽어야 합니다
+???댁뒪瑜??쎄퀬 ?섏꽌 ??먭쾶 ?⑤뒗 吏덈Ц? 紐낇솗?⑸땲?? ??蹂?붽? ?④린?곸씤 ?吏곸엫?몄?, ?꾨땲硫?援ъ“?곸씤 蹂?붿쓽 ?쒖옉?몄? ?뺤씤?댁빞 ?⑸땲?? ?????댁뒋媛 ?뱀젙 湲곗뾽?대굹 ?낃퀎?먮쭔 ?곹뼢??二쇰뒗吏, ?꾨땲硫????볦? ?쒖옣怨??앺솢鍮? ?ъ옄 ?먮떒, ?뺤콉 諛⑺뼢源뚯? ?댁뼱吏????덈뒗吏??遊먯빞 ?⑸땲??
 
-뉴스에서 숫자는 중요하지만, 숫자 하나만으로 전체를 판단하면 위험합니다. 중요한 것은 방향입니다. 좋아지고 있는지, 나빠지고 있는지, 속도가 빨라지는지, 시장의 반응이 일시적인지 지속적인지 봐야 합니다. 구체적인 수치가 부족한 기사일수록 더더욱 방향성을 먼저 확인해야 합니다.
+?낆옄???ㅼ쓬 吏덈Ц??湲곗??쇰줈 ?먮Ц???ㅼ떆 ?뺤씤?대낫硫?醫뗭뒿?덈떎.
 
-원문 기사에서 추가로 확인하면 좋은 것은 세 가지입니다. 첫째, 실제 수치나 일정입니다. 둘째, 관계자 발언입니다. 셋째, 이후 후속 조치입니다. 이 세 가지가 확인되면 뉴스의 무게가 훨씬 선명해집니다. 반대로 이 세 가지가 비어 있다면 성급한 판단을 피하는 것이 좋습니다.
+- ???댁뒪??吏곸젒?곸씤 ?뱀궗?먮뒗 ?꾧뎄?멸??
+- ?ㅼ젣 ?섏튂???쇱젙??湲곗궗 ?덉뿉 紐낇솗???쒖떆?섏뼱 ?덈뒗媛?
+- 愿怨꾩옄 諛쒖뼵? ?⑥닚???꾨쭩?멸?, ?ㅽ뻾 怨꾪쉷?멸??
+- ?쒖옣?대굹 ?뚮퉬?먯뿉寃??곹뼢??二쇰뒗 寃쎈줈??臾댁뾿?멸??
+- ?욎쑝濡?異붽? 諛쒗몴???꾩냽 湲곗궗媛 ?섏삱 媛?μ꽦???덈뒗媛?
 
-## 저에게 남는 질문
+??吏덈Ц???듭씠 ?볦씠硫??⑥닚???댁뒪 ?뚮퉬媛 ?꾨땲???먮떒 媛?ν븳 ?뺣낫濡?諛붾앸땲??
 
-이 뉴스를 읽고 나서 저에게 남는 질문은 명확합니다. 이 변화가 단기적인 움직임인지, 아니면 구조적인 변화의 시작인지 확인해야 합니다. 또 이 이슈가 특정 기업이나 업계에만 영향을 주는지, 아니면 더 넓은 시장과 생활비, 투자 판단, 정책 방향까지 이어질 수 있는지도 봐야 합니다.
+## 釉붾줈洹?愿?먯뿉???뺣━?섎㈃
 
-독자는 다음 질문을 기준으로 원문을 다시 확인해보면 좋습니다.
+釉붾줈洹?湲?먯꽌???댁뒪瑜?洹몃?濡???린??寃껊낫???낆옄媛 ?댄빐?섍린 ?쎄쾶 ?댁꽍?섎뒗 寃껋씠 以묒슂?⑸땲?? ?쒕ぉ? 愿?ъ쓣 ?????덉뼱???섏?留? 蹂몃Ц? 怨쇱옣蹂대떎 ?뺣━媛 ?곗꽑?낅땲?? 吏湲덉쿂??湲곗궗 蹂몃Ц??異⑸텇???섏쭛?섏? ?딆? 寃쎌슦?먮뒗 ?뺤씤???댁슜怨?異붿젙 媛?ν븳 ?댁꽍??遺꾨━?댁꽌 ?곕뒗 寃껋씠 醫뗭뒿?덈떎.
 
-- 이 뉴스의 직접적인 당사자는 누구인가?
-- 실제 수치나 일정이 기사 안에 명확히 제시되어 있는가?
-- 관계자 발언은 단순한 전망인가, 실행 계획인가?
-- 시장이나 소비자에게 영향을 주는 경로는 무엇인가?
-- 앞으로 추가 발표나 후속 기사가 나올 가능성이 있는가?
+?뺤씤???댁슜? 吏㏐퀬 遺꾨챸?섍쾶 ?뺣━?섍퀬, 遺議깊븳 遺遺꾩? ?먮Ц ?뺤씤 ?꾩슂?쇨퀬 ?쒖떆?섎뒗 諛⑹떇???덉쟾?⑸땲?? 洹몃옒???낆옄媛 湲???쎌쑝硫댁꽌???대뵒源뚯?媛 ?ъ떎?닿퀬 ?대뵒遺?곌? ?댁꽍?몄? 援щ텇?????덉뒿?덈떎. ?뱁엳 寃쎌젣???뺤콉 ?댁뒪???レ옄 ?섎굹媛 ?섎?瑜??ш쾶 諛붽? ???덇린 ?뚮Ц???대윴 援щ텇????以묒슂?⑸땲??
 
-이 질문에 답이 쌓이면 단순한 뉴스 소비가 아니라 판단 가능한 정보로 바뀝니다.
+## 留덈Т由?
 
-## 블로그 관점에서 정리하면
+?대쾲 ?댁뒪???듭떖? {title}?낅땲?? ?꾩쭅 湲곗궗 蹂몃Ц ?꾩껜媛 異⑸텇???뺣낫?섏? ?딆븯?????덇린 ?뚮Ц???⑥젙?곸씤 寃곕줎???대━湲곕뒗 ?대졄?듬땲?? ?섏?留????댁뒋媛 ?섏????좏샇??媛蹂띿? ?딆뒿?덈떎. 諛곌꼍, ?곹뼢 踰붿쐞, ?꾩냽 ?吏곸엫??李⑤??濡??뺤씤?섎㈃ ?욎쑝濡쒖쓽 ?먮쫫?????뺥솗?섍쾶 ?쎌쓣 ???덉뒿?덈떎.
 
-블로그 글에서는 뉴스를 그대로 옮기는 것보다 독자가 이해하기 쉽게 해석하는 것이 중요합니다. 제목은 관심을 끌 수 있어야 하지만, 본문은 과장보다 정리가 우선입니다. 지금처럼 기사 본문이 충분히 수집되지 않은 경우에는 확인된 내용과 추정 가능한 해석을 분리해서 쓰는 것이 좋습니다.
+吏湲??④퀎?먯꽌 媛??醫뗭? ?쒕룄??鍮좊Ⅸ 寃곕줎蹂대떎 李⑤텇???뺤씤?낅땲?? ?먮Ц???댁뼱 ?섏튂? 諛쒖뼵???먭??섍퀬, ?댁뼱吏???꾩냽 湲곗궗源뚯? ?댄렣蹂몃떎硫????댁뒪媛 ?⑥닚???섎（吏쒕━ ?뚯떇?몄?, ?꾨땲硫?????蹂?붿쓽 ?쒖옉?몄? ?먮떒?섎뒗 ???꾩?????寃껋엯?덈떎.
 
-확인된 내용은 짧고 분명하게 정리하고, 부족한 부분은 원문 확인 필요라고 표시하는 방식이 안전합니다. 그래야 독자가 글을 읽으면서도 어디까지가 사실이고 어디부터가 해석인지 구분할 수 있습니다. 특히 경제나 정책 뉴스는 숫자 하나가 의미를 크게 바꿀 수 있기 때문에 이런 구분이 더 중요합니다.
-
-## 마무리
-
-이번 뉴스의 핵심은 {title}입니다. 아직 기사 본문 전체가 충분히 확보되지 않았을 수 있기 때문에 단정적인 결론을 내리기는 어렵습니다. 하지만 이 이슈가 던지는 신호는 가볍지 않습니다. 배경, 영향 범위, 후속 움직임을 차례대로 확인하면 앞으로의 흐름을 더 정확하게 읽을 수 있습니다.
-
-지금 단계에서 가장 좋은 태도는 빠른 결론보다 차분한 확인입니다. 원문을 열어 수치와 발언을 점검하고, 이어지는 후속 기사까지 살펴본다면 이 뉴스가 단순한 하루짜리 소식인지, 아니면 더 큰 변화의 시작인지 판단하는 데 도움이 될 것입니다.
-
-출처: {source}
-원문: {link}
-확인일: {today}
+異쒖쿂: {source}
+?먮Ц: {link}
+?뺤씤?? {today}
 """
 
     return f"{blog_post}\n{expansion}".strip()[:4500]
@@ -931,7 +815,7 @@ def fetch_news(query: str, limit: int, timeout: int = 15) -> list[NewsItem]:
             final_url = direct_link or link
         items.append(
             NewsItem(
-                title=item.findtext("title", default="제목 없음").strip(),
+                title=item.findtext("title", default="?쒕ぉ ?놁쓬").strip(),
                 link=final_url or link,
                 source=item.findtext("source", default="Google News").strip(),
                 summary=summary,
@@ -965,11 +849,11 @@ def parse_slide_blocks(slide_script: str) -> list[dict[str, str]]:
                 continue
             number = item.get("slide_number") or item.get("number") or item.get("slide") or index
             title = item.get("title") or item.get("heading") or ""
-            screen = item.get("screen_text") or item.get("screen") or item.get("화면 문구") or item.get("caption") or ""
-            narration = item.get("narration") or item.get("voiceover") or item.get("내레이션") or item.get("script") or ""
+            screen = item.get("screen_text") or item.get("screen") or item.get("?붾㈃ 臾멸뎄") or item.get("caption") or ""
+            narration = item.get("narration") or item.get("voiceover") or item.get("?대젅?댁뀡") or item.get("script") or ""
             structured.append(
                 {
-                    "title": f"슬라이드 {number}",
+                    "title": f"?щ씪?대뱶 {number}",
                     "screen": str(screen).strip() or str(title).strip(),
                     "narration": str(narration).strip(),
                 }
@@ -999,15 +883,15 @@ def parse_slide_blocks(slide_script: str) -> list[dict[str, str]]:
         if current is None:
             continue
 
-        if line.startswith("- 화면 문구:") or line.startswith("화면 문구:"):
+        if line.startswith("- ?붾㈃ 臾멸뎄:") or line.startswith("?붾㈃ 臾멸뎄:"):
             current["screen"] = line.split(":", 1)[1].strip()
             mode = ""
-        elif line.startswith("- 내레이션:") or line.startswith("내레이션:"):
+        elif line.startswith("- ?대젅?댁뀡:") or line.startswith("?대젅?댁뀡:"):
             current["narration"] = line.split(":", 1)[1].strip()
             mode = "narration"
-        elif line == "화면 문구":
+        elif line == "?붾㈃ 臾멸뎄":
             mode = "screen"
-        elif line == "내레이션":
+        elif line == "?대젅?댁뀡":
             mode = "narration"
         elif mode == "screen":
             current["screen"] = (current["screen"] + "\n" + line).strip()
@@ -1024,34 +908,34 @@ def parse_slide_blocks(slide_script: str) -> list[dict[str, str]]:
 def fallback_slide_blocks(item: NewsItem, article_context: str) -> list[dict[str, str]]:
     return [
         {
-            "title": "슬라이드 1. 오프닝",
-            "screen": "지금 놓치면 늦습니다",
-            "narration": f'오늘 꼭 확인해야 할 뉴스는 "{item.title}"입니다.',
+            "title": "슬라이드 1. 오늘의 뉴스",
+            "screen": _clean_news_title(item.title)[:70],
+            "narration": f'오늘 살펴볼 뉴스는 "{_clean_news_title(item.title)}"입니다.',
         },
         {
             "title": "슬라이드 2. 무슨 일이 있었나",
-            "screen": "핵심 사건 한눈에 보기",
-            "narration": f"기사에서 확인한 주요 내용은 다음과 같습니다. {article_context[:180]}",
+            "screen": "제목에서 읽히는 변화",
+            "narration": f"이 뉴스는 단순한 사건보다 앞으로의 흐름을 보여주는 신호로 볼 수 있습니다. {article_context[:180]}",
         },
         {
             "title": "슬라이드 3. 왜 중요한가",
-            "screen": "우리에게 미칠 영향",
-            "narration": "이 뉴스가 중요한 이유는 관련 시장뿐 아니라 우리의 선택에도 영향을 줄 수 있기 때문입니다.",
+            "screen": "생활과 시장에 미칠 영향",
+            "narration": "이 뉴스가 중요한 이유는 관련 시장뿐 아니라 우리의 생활비, 투자 판단, 정책 흐름에도 영향을 줄 수 있기 때문입니다.",
         },
         {
-            "title": "슬라이드 4. 꼭 볼 세 가지",
-            "screen": "배경 · 영향 · 다음 움직임",
-            "narration": "변화가 시작된 배경, 실제 영향 범위, 앞으로 나올 후속 움직임을 확인해야 합니다.",
+            "title": "슬라이드 4. 확인할 것",
+            "screen": "배경, 영향, 다음 움직임",
+            "narration": "변화가 시작된 배경과 실제 영향 범위, 그리고 앞으로 나올 후속 움직임을 차례대로 확인해야 합니다.",
         },
         {
             "title": "슬라이드 5. 대응 방법",
-            "screen": "지금 무엇을 준비할까?",
-            "narration": "성급한 결론보다 원문과 반대 관점을 함께 확인하고, 내 상황에 맞는 선택지를 준비하세요.",
+            "screen": "성급한 결론보다 점검",
+            "narration": "성급히 결론을 내리기보다 원문과 반대 관점의 기사까지 함께 확인하고, 내 상황에 맞는 선택지를 준비하는 것이 좋습니다.",
         },
         {
             "title": "슬라이드 6. 마무리",
             "screen": "다음 변화가 더 중요합니다",
-            "narration": "여러분은 이번 뉴스를 어떻게 보셨나요? 의견을 댓글로 남겨 주세요.",
+            "narration": "오늘의 뉴스는 끝이 아니라 시작일 수 있습니다. 이어지는 정책과 시장 반응을 계속 살펴보겠습니다.",
         },
     ]
 
@@ -1066,7 +950,7 @@ def ensure_six_slide_blocks(slide_script: str, item: NewsItem, article_context: 
         default = defaults[index]
         blocks.append(
             {
-                "title": f"슬라이드 {index + 1}",
+                "title": f"?щ씪?대뱶 {index + 1}",
                 "screen": source.get("screen") or default["screen"],
                 "narration": source.get("narration") or default["narration"],
             }
@@ -1168,7 +1052,7 @@ def create_basic_pptx(slide_script: str, output_path: Path, title: str) -> str:
               <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
               {shape(2, "Header", slide_title[:60], 0.65, 0.48, 12.0, 0.55, 17, bold=True, fill="111827")}
               {shape(3, "Screen Text", screen[:95], 0.9, 1.45, 11.4, 1.25, 33, bold=True, fill="050A18")}
-              {shape(4, "Narration", "내레이션\\n" + narration[:520], 0.9, 3.2, 11.4, 2.55, 18, fill="0F172A")}
+              {shape(4, "Narration", "?대젅?댁뀡\\n" + narration[:520], 0.9, 3.2, 11.4, 2.55, 18, fill="0F172A")}
               {shape(5, "Footer", f"HYUNTOP NEWS | Slide {number}", 0.7, 6.88, 5.5, 0.25, 9, fill="050A18", color="94A3B8")}
             </p:spTree>
           </p:cSld>
@@ -1177,7 +1061,7 @@ def create_basic_pptx(slide_script: str, output_path: Path, title: str) -> str:
 
     slides_data = parse_slide_blocks(slide_script)
     if not slides_data:
-        slides_data = [{"title": "유튜브 슬라이드", "screen": title, "narration": slide_script[:600]}]
+        slides_data = [{"title": "?좏뒠釉??щ씪?대뱶", "screen": title, "narration": slide_script[:600]}]
 
     all_slides = slides_data[:6]
     slide_count = len(all_slides)
@@ -1228,7 +1112,7 @@ def create_basic_pptx(slide_script: str, output_path: Path, title: str) -> str:
         for index, slide_info in enumerate(all_slides, 1):
             archive.writestr(
                 f"ppt/slides/slide{index}.xml",
-                slide_xml(index, slide_info.get("title", f"슬라이드 {index}"), slide_info.get("screen", ""), slide_info.get("narration", "")),
+                slide_xml(index, slide_info.get("title", f"?щ씪?대뱶 {index}"), slide_info.get("screen", ""), slide_info.get("narration", "")),
             )
 
     return str(output_path)
@@ -1245,7 +1129,7 @@ def create_youtube_pptx(slide_script: str, output_path: Path, title: str) -> str
 
     slides_data = parse_slide_blocks(slide_script)
     if not slides_data:
-        slides_data = [{"title": "유튜브 슬라이드", "screen": title, "narration": slide_script[:600]}]
+        slides_data = [{"title": "?좏뒠釉??щ씪?대뱶", "screen": title, "narration": slide_script[:600]}]
 
     prs = Presentation()
     prs.slide_width = Inches(13.333)
@@ -1275,7 +1159,7 @@ def create_youtube_pptx(slide_script: str, output_path: Path, title: str) -> str
         header.fill.fore_color.rgb = panel
         header.line.color.rgb = cyan
         header.line.width = Pt(1)
-        add_pptx_textbox(slide, slide_info.get("title", f"슬라이드 {index}")[:60], Inches(0.85), Inches(0.61), Inches(10.5), Inches(0.35), size=17, bold=True, color=white)
+        add_pptx_textbox(slide, slide_info.get("title", f"?щ씪?대뱶 {index}")[:60], Inches(0.85), Inches(0.61), Inches(10.5), Inches(0.35), size=17, bold=True, color=white)
 
         screen_text = slide_info.get("screen") or slide_info.get("title", "")
         add_pptx_textbox(slide, screen_text[:95], Inches(0.9), Inches(1.55), Inches(11.4), Inches(1.1), size=33, bold=True, color=white)
@@ -1284,7 +1168,7 @@ def create_youtube_pptx(slide_script: str, output_path: Path, title: str) -> str
         narration_box.fill.solid()
         narration_box.fill.fore_color.rgb = panel
         narration_box.line.color.rgb = RGBColor(51, 65, 85)
-        add_pptx_textbox(slide, "내레이션", Inches(1.2), Inches(3.47), Inches(2), Inches(0.28), size=12, bold=True, color=cyan)
+        add_pptx_textbox(slide, "?대젅?댁뀡", Inches(1.2), Inches(3.47), Inches(2), Inches(0.28), size=12, bold=True, color=cyan)
         add_pptx_textbox(slide, slide_info.get("narration", "")[:520], Inches(1.2), Inches(3.9), Inches(10.3), Inches(1.45), size=18, color=white)
         add_footer(slide, index)
 
@@ -1292,7 +1176,75 @@ def create_youtube_pptx(slide_script: str, output_path: Path, title: str) -> str
     return str(output_path)
 
 
-def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackage | None:
+def create_gemini_blog_post_only(item: NewsItem, article_context: str, use_grounding: bool = False) -> str | None:
+    global LAST_GEMINI_ERROR
+    api_key = get_secret("GEMINI_API_KEY") or get_secret("GOOGLE_API_KEY")
+    if not api_key:
+        LAST_GEMINI_ERROR = "Gemini API ?ㅺ? ?놁뼱 濡쒖뺄 ?덈퉬 湲?곌린 ?붿쭊???ъ슜?덉뒿?덈떎."
+        return None
+
+    try:
+        from google import genai
+        from google.genai import types
+    except Exception as exc:
+        LAST_GEMINI_ERROR = f"Gemini ?⑦궎吏瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲?? {exc}"
+        return None
+
+    model = get_secret("GEMINI_BLOG_MODEL") or get_secret("GEMINI_MODEL_LOW_COST") or "gemini-2.5-flash"
+    title = _clean_news_title(item.title)
+    prompt = f"""
+Write only one Korean blog article for readers in their 50s and 60s.
+Return JSON only: {{"blog_post": "..."}}
+
+Style:
+- Tistory/Naver-style practical blog article, not a report.
+- 2500~3500 Korean characters if possible.
+- Use short paragraphs with blank lines.
+- Do not say that the article text is missing.
+- Do not invent exact numbers, quotes, schedules, or names that are not provided.
+- If article detail is thin, expand with background, reader impact, checks, and practical interpretation.
+- Do not create thread, slides, Vrew, or Tistory variants.
+
+News title:
+{title}
+
+Source:
+{item.source}
+
+Original link:
+{item.link}
+
+Collected article/context:
+{article_context}
+"""
+
+    client = genai.Client(api_key=api_key)
+    try:
+        config_kwargs = {
+            "temperature": 0.72,
+            "max_output_tokens": 4096,
+            "response_mime_type": "application/json",
+        }
+        if use_grounding:
+            config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(**config_kwargs),
+        )
+        data = extract_json_object(response.text)
+        blog_post = str(data.get("blog_post", "")).strip()
+    except Exception as exc:
+        LAST_GEMINI_ERROR = f"Gemini 釉붾줈洹?湲 ?앹꽦 ?ㅽ뙣: {exc}"
+        return None
+
+    if len(blog_post) < 800:
+        LAST_GEMINI_ERROR = f"Gemini blog post was too short: {len(blog_post)} chars"
+        return None
+    return blog_post[:4500]
+
+
+def create_content_package(item: NewsItem, draft_dir_name: str, low_cost_mode: bool = False) -> ContentPackage | None:
     global LAST_GEMINI_ERROR
     today = datetime.now().strftime("%Y-%m-%d")
     has_article_text = is_useful_article_text(item.article_text, item.title)
@@ -1304,15 +1256,29 @@ def create_content_package(item: NewsItem, draft_dir_name: str) -> ContentPackag
         article_context = item.summary
     else:
         article_context = (
-            "기사 본문 전문은 제공되지 않았다. 이 사실을 독자에게 설명하지 말고, "
-            "뉴스 제목과 출처를 글감으로 삼아 관련 배경과 독자 관점의 해설을 자연스럽게 확장하라."
+            "湲곗궗 蹂몃Ц ?꾨Ц? ?쒓났?섏? ?딆븯?? ???ъ떎???낆옄?먭쾶 ?ㅻ챸?섏? 留먭퀬, "
+            "?댁뒪 ?쒕ぉ怨?異쒖쿂瑜?湲媛먯쑝濡??쇱븘 愿??諛곌꼍怨??낆옄 愿?먯쓽 ?댁꽕???먯뿰?ㅻ읇寃??뺤옣?섎씪."
         )
 
-    gemini_content = create_gemini_content(item, article_context, use_grounding=not has_article_text)
-    if not gemini_content:
-        gemini_content = create_local_content_package_data(item, article_context, today)
-        if not LAST_GEMINI_ERROR:
-            LAST_GEMINI_ERROR = "Gemini가 응답하지 않아 로컬 예비 글쓰기 엔진을 사용했습니다."
+    if low_cost_mode:
+        blog_post = create_gemini_blog_post_only(item, article_context, use_grounding=False)
+        if blog_post:
+            derivatives = fallback_derivative_content_from_blog(blog_post, item)
+            gemini_content = {
+                "blog_post": blog_post,
+                "tistory_post": derivatives["tistory_post"],
+                "thread_post": derivatives["thread_post"],
+                "slide_script": derivatives["slide_script"],
+                "vrew_script": derivatives["vrew_script"],
+            }
+        else:
+            gemini_content = create_local_content_package_data(item, article_context, today)
+    else:
+        gemini_content = create_gemini_content(item, article_context, use_grounding=not has_article_text)
+        if not gemini_content:
+            gemini_content = create_local_content_package_data(item, article_context, today)
+            if not LAST_GEMINI_ERROR:
+                LAST_GEMINI_ERROR = "Gemini媛 ?묐떟?섏? ?딆븘 濡쒖뺄 ?덈퉬 湲?곌린 ?붿쭊???ъ슜?덉뒿?덈떎."
 
     blog_post = gemini_content["blog_post"]
     tistory_post = gemini_content["tistory_post"]
@@ -1372,8 +1338,8 @@ def build_email(
     content_package: ContentPackage | None = None,
 ) -> EmailMessage:
     today = datetime.now().strftime("%Y-%m-%d")
-    topic = query or "주요"
-    subject = f"[아침 뉴스] {topic} 뉴스 {len(items)}개 - {today}"
+    topic = query or "二쇱슂"
+    subject = f"[?꾩묠 ?댁뒪] {topic} ?댁뒪 {len(items)}媛?- {today}"
     rows = "\n".join(
         f"""
         <li style="margin-bottom:18px">
@@ -1390,32 +1356,32 @@ def build_email(
     if content_package:
         package_html = f"""
           <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0">
-          <h2>오늘의 콘텐츠 패키지</h2>
-          <p style="color:#667085">선택 뉴스: {html.escape(content_package.news_title)}</p>
-          <h3>1. 후킹형 블로그 글</h3>
+          <h2>?ㅻ뒛??肄섑뀗痢??⑦궎吏</h2>
+          <p style="color:#667085">?좏깮 ?댁뒪: {html.escape(content_package.news_title)}</p>
+          <h3>1. ?꾪궧??釉붾줈洹?湲</h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.blog_post)}</pre>
-          <h3>2. 티스토리용 각색 글</h3>
+          <h3>2. ?곗뒪?좊━??媛곸깋 湲</h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.tistory_post)}</pre>
-          <h3>3. 쓰레드 글</h3>
+          <h3>3. ?곕젅??湲</h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.thread_post)}</pre>
-          <h3>4. 유튜브 슬라이드 대본</h3>
+          <h3>4. ?좏뒠釉??щ씪?대뱶 ?蹂?/h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.slide_script)}</pre>
-          <h3>5. Vrew 대본</h3>
+          <h3>5. Vrew ?蹂?/h3>
           <pre style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:16px">{html.escape(content_package.vrew_script)}</pre>
         """
         package_plain = (
-            f"\n\n[후킹형 블로그 글]\n{content_package.blog_post}"
-            f"\n\n[티스토리용 각색 글]\n{content_package.tistory_post}"
-            f"\n\n[쓰레드 글]\n{content_package.thread_post}"
-            f"\n\n[유튜브 슬라이드 대본]\n{content_package.slide_script}"
-            f"\n\n[Vrew 대본]\n{content_package.vrew_script}"
+            f"\n\n[?꾪궧??釉붾줈洹?湲]\n{content_package.blog_post}"
+            f"\n\n[?곗뒪?좊━??媛곸깋 湲]\n{content_package.tistory_post}"
+            f"\n\n[?곕젅??湲]\n{content_package.thread_post}"
+            f"\n\n[?좏뒠釉??щ씪?대뱶 ?蹂?\n{content_package.slide_script}"
+            f"\n\n[Vrew ?蹂?\n{content_package.vrew_script}"
         )
 
     body = f"""
     <html lang="ko">
       <body style="background:#f5f7fa;padding:24px;font-family:Arial,'Malgun Gothic',sans-serif">
         <main style="max-width:680px;margin:auto;background:#fff;border:1px solid #e5e7eb;padding:28px">
-          <h1 style="margin-top:0">아침 {html.escape(topic)} 뉴스</h1>
+          <h1 style="margin-top:0">?꾩묠 {html.escape(topic)} ?댁뒪</h1>
           <ol>{rows}</ol>
           {package_html}
         </main>
@@ -1452,12 +1418,12 @@ def send_email(message: EmailMessage, sender: str, app_password: str) -> None:
 def _clean_news_title(title: str) -> str:
     title = re.sub(r"\s+", " ", title or "").strip()
     title = re.sub(r"\s*-\s*[^-]{2,25}$", "", title).strip()
-    return title or "오늘의 뉴스"
+    return title or "?ㅻ뒛???댁뒪"
 
 
 def _article_core(title: str, context: str) -> str:
     text = " ".join((context or "").split())
-    if len(text) > 120 and "본문" not in text[:80]:
+    if len(text) > 120 and "蹂몃Ц" not in text[:80]:
         return text[:900]
     return _clean_news_title(title)
 
@@ -1465,10 +1431,10 @@ def _article_core(title: str, context: str) -> str:
 def _make_reader_questions(title: str) -> list[str]:
     clean = _clean_news_title(title)
     return [
-        f"{clean}이 실제 정책이나 시장 흐름으로 이어질 가능성은 얼마나 되는가?",
-        "직접 영향을 받는 사람은 누구이고, 부담은 어디로 이동하는가?",
-        "이번 발표 이후 정부, 기업, 시장이 다음에 확인할 지표는 무엇인가?",
-        "내 생활비, 투자 판단, 사업 계획에 연결되는 부분은 없는가?",
+        f"{clean}???ㅼ젣 ?뺤콉?대굹 ?쒖옣 ?먮쫫?쇰줈 ?댁뼱吏?媛?μ꽦? ?쇰쭏???섎뒗媛?",
+        "吏곸젒 ?곹뼢??諛쏅뒗 ?щ엺? ?꾧뎄?닿퀬, 遺?댁? ?대뵒濡??대룞?섎뒗媛?",
+        "?대쾲 諛쒗몴 ?댄썑 ?뺣?, 湲곗뾽, ?쒖옣???ㅼ쓬???뺤씤??吏?쒕뒗 臾댁뾿?멸??",
+        "???앺솢鍮? ?ъ옄 ?먮떒, ?ъ뾽 怨꾪쉷???곌껐?섎뒗 遺遺꾩? ?녿뒗媛?",
     ]
 
 
@@ -1482,7 +1448,7 @@ def parse_slide_blocks(slide_script: str) -> list[dict[str, str]]:
         if not line:
             continue
 
-        if line.startswith("##") and ("슬라이드" in line or "Slide" in line):
+        if line.startswith("##") and ("?щ씪?대뱶" in line or "Slide" in line):
             if current:
                 blocks.append(current)
             current = {"title": line.lstrip("# ").strip(), "screen": "", "narration": ""}
@@ -1528,32 +1494,32 @@ def fallback_slide_blocks(item: NewsItem, article_context: str) -> list[dict[str
         {
             "title": "슬라이드 1. 오늘의 핵심 뉴스",
             "screen": title,
-            "narration": f"오늘 볼 뉴스는 {title}입니다. 제목만 보면 지나칠 수 있지만, 정책과 시장 흐름을 함께 읽어야 하는 이슈입니다.",
+            "narration": f"오늘 볼 뉴스는 {title}입니다. 제목만 보고 지나치기보다 정책과 시장 흐름을 함께 읽어야 하는 이슈입니다.",
         },
         {
-            "title": "슬라이드 2. 기사에서 드러난 쟁점",
+            "title": "슬라이드 2. 뉴스가 말하는 변화",
             "screen": core[:90],
-            "narration": f"이 뉴스의 출발점은 {core[:180]}입니다. 핵심은 사건 자체보다 이 흐름이 어디까지 번질 수 있느냐입니다.",
+            "narration": f"이 뉴스의 출발점은 {core[:180]}입니다. 사건 자체보다 이 흐름이 어디까지 번질 수 있는지가 중요합니다.",
         },
         {
             "title": "슬라이드 3. 왜 지금 중요한가",
-            "screen": "생활비, 투자 판단, 정책 변화와 연결될 수 있습니다",
-            "narration": "이런 뉴스는 처음에는 멀리 있는 이야기처럼 보여도 시간이 지나면 세금, 집값, 물가, 일자리, 투자 심리에 영향을 줄 수 있습니다.",
+            "screen": "생활비, 자산 판단, 정책 변화와 연결될 수 있습니다",
+            "narration": "이런 뉴스는 처음에는 멀리 있는 이야기처럼 보이지만, 시간이 지나면 세금, 집값, 물가, 일자리, 자산 심리에 영향을 줄 수 있습니다.",
         },
         {
             "title": "슬라이드 4. 지금 확인할 것",
             "screen": "\n".join(questions[:3]),
-            "narration": "성급한 결론보다 확인 질문을 먼저 세워야 합니다. 누가 영향을 받는지, 비용은 어디로 이동하는지, 다음 발표가 무엇인지 봐야 합니다.",
+            "narration": "성급히 결론부터 내리기보다 확인 질문을 먼저 세워야 합니다. 누가 영향을 받는지, 비용은 어디로 이동하는지, 다음 발표가 무엇인지 봐야 합니다.",
         },
         {
             "title": "슬라이드 5. 대응 관점",
-            "screen": "뉴스를 소비하지 말고 내 선택 기준으로 바꾸기",
-            "narration": "뉴스를 그대로 믿거나 넘기기보다 내 자산, 소비, 사업, 생활 계획에 어떤 영향을 줄 수 있는지 기준을 만들어야 합니다.",
+            "screen": "뉴스를 소비하지 말고 선택 기준으로 바꾸기",
+            "narration": "뉴스를 그대로 믿거나 흘려보내기보다 내 자산, 소비, 사업, 생활 계획에 어떤 영향을 줄 수 있는지 기준을 만들어야 합니다.",
         },
         {
             "title": "슬라이드 6. 마무리",
-            "screen": "다음 변화가 어디에서 시작될지 지켜보세요",
-            "narration": "이번 뉴스는 하나의 신호입니다. 후속 기사와 실제 정책 변화를 함께 보면서 내 선택지를 미리 정리해 두는 것이 중요합니다.",
+            "screen": "다음 변화가 어디서 시작될지 지켜보기",
+            "narration": "이번 뉴스는 하나의 신호입니다. 후속 기사와 실제 정책 변화를 함께 보면서 선택지를 미리 정리해 두는 것이 중요합니다.",
         },
     ]
 
@@ -1566,8 +1532,8 @@ def ensure_six_slide_blocks(slide_script: str, item: NewsItem, article_context: 
         source = parsed[index] if index < len(parsed) else {}
         default = defaults[index]
         title = source.get("title") or default["title"]
-        if "슬라이드" not in title:
-            title = f"슬라이드 {index + 1}. {title}"
+        if "?щ씪?대뱶" not in title:
+            title = f"?щ씪?대뱶 {index + 1}. {title}"
         blocks.append(
             {
                 "title": title,
@@ -1619,43 +1585,42 @@ def format_vrew_script(blocks: list[dict[str, str]], source: str) -> str:
 def _build_tistory_post_from_blog(blog_post: str, title: str, source: str, link: str) -> str:
     clean_title = _clean_news_title(title)
     body = re.sub(r"^# .*$", "", blog_post or "", count=1, flags=re.MULTILINE).strip()
-    body = re.sub(r"출처:.*", "", body).strip()
-    body = re.sub(r"원문:.*", "", body).strip()
+    body = re.sub(r"異쒖쿂:.*", "", body).strip()
+    body = re.sub(r"?먮Ц:.*", "", body).strip()
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
-    intro = paragraphs[0] if paragraphs else f"{clean_title} 이슈를 5060 독자 관점에서 정리합니다."
+    intro = paragraphs[0] if paragraphs else f"{clean_title} ?댁뒋瑜?5060 ?낆옄 愿?먯뿉???뺣━?⑸땲??"
     middle = "\n\n".join(paragraphs[1:5]) if len(paragraphs) > 1 else body
     questions = "\n".join(f"- {q}" for q in _make_reader_questions(title))
-    tags = "#뉴스해설 #경제뉴스 #정책이슈 #부동산뉴스 #5060정보 #생활경제"
+    tags = "#?댁뒪?댁꽕 #寃쎌젣?댁뒪 #?뺤콉?댁뒋 #遺?숈궛?댁뒪 #5060?뺣낫 #?앺솢寃쎌젣"
     return format_tistory_post(
-        f"""# {clean_title}, 지금 확인해야 할 흐름
+        f"""# {clean_title}, 吏湲??뺤씤?댁빞 ???먮쫫
 
 {intro}
 
-## 1. 제목이 말하는 핵심 변화
-
-이번 뉴스는 단순한 사건 전달보다 앞으로의 방향을 읽는 데 의미가 있습니다. 제목 속 표현을 보면 시장과 정책, 사람들의 선택이 어디로 움직이는지 단서가 들어 있습니다.
+## 1. ?쒕ぉ??留먰븯???듭떖 蹂??
+?대쾲 ?댁뒪???⑥닚???ш굔 ?꾨떖蹂대떎 ?욎쑝濡쒖쓽 諛⑺뼢???쎈뒗 ???섎?媛 ?덉뒿?덈떎. ?쒕ぉ ???쒗쁽??蹂대㈃ ?쒖옣怨??뺤콉, ?щ엺?ㅼ쓽 ?좏깮???대뵒濡??吏곸씠?붿? ?⑥꽌媛 ?ㅼ뼱 ?덉뒿?덈떎.
 
 {middle}
 
-## 2. 저에게 중요한 이유
+## 2. ??먭쾶 以묒슂???댁쑀
 
-이런 뉴스는 처음에는 멀리 있는 이야기처럼 보이지만, 시간이 지나면 생활비와 세금, 자산 가격, 투자 심리, 사업 환경으로 이어질 수 있습니다.
+?대윴 ?댁뒪??泥섏쓬?먮뒗 硫由??덈뒗 ?댁빞湲곗쿂??蹂댁씠吏留? ?쒓컙??吏?섎㈃ ?앺솢鍮꾩? ?멸툑, ?먯궛 媛寃? ?ъ옄 ?щ━, ?ъ뾽 ?섍꼍?쇰줈 ?댁뼱吏????덉뒿?덈떎.
 
-그래서 중요한 것은 누가 이익을 보고, 누가 부담을 지며, 그 부담이 어느 시점에 현실화되는지 확인하는 일입니다.
+洹몃옒??以묒슂??寃껋? ?꾧? ?댁씡??蹂닿퀬, ?꾧? 遺?댁쓣 吏硫? 洹?遺?댁씠 ?대뒓 ?쒖젏???꾩떎?붾릺?붿? ?뺤씤?섎뒗 ?쇱엯?덈떎.
 
-## 3. 바로 확인할 질문
+## 3. 諛붾줈 ?뺤씤??吏덈Ц
 
 {questions}
 
-## 4. 오늘의 정리
+## 4. ?ㅻ뒛???뺣━
 
-지금 필요한 태도는 빠른 결론이 아니라 차분한 확인입니다. 원문과 후속 보도를 함께 보면서 이 이슈가 일시적 소음인지, 실제 변화의 시작인지 구분해야 합니다.
+吏湲??꾩슂???쒕룄??鍮좊Ⅸ 寃곕줎???꾨땲??李⑤텇???뺤씤?낅땲?? ?먮Ц怨??꾩냽 蹂대룄瑜??④퍡 蹂대㈃?????댁뒋媛 ?쇱떆???뚯쓬?몄?, ?ㅼ젣 蹂?붿쓽 ?쒖옉?몄? 援щ텇?댁빞 ?⑸땲??
 
-출처: {source}
+異쒖쿂: {source}
 
-원문: {link}
+?먮Ц: {link}
 
-태그: {tags}"""
+?쒓렇: {tags}"""
     )[:4500]
 
 
@@ -1663,9 +1628,9 @@ def _build_thread_post_from_blog(blog_post: str, title: str) -> str:
     clean_title = _clean_news_title(title)
     snippet = " ".join(re.sub(r"#+\s*", "", blog_post or "").split())[:180]
     text = (
-        f"{clean_title} 뉴스는 제목만 보고 넘기기엔 아깝습니다. "
+        f"{clean_title} ?댁뒪???쒕ぉ留?蹂닿퀬 ?섍린湲곗뿏 ?꾧튉?듬땲?? "
         f"{snippet} "
-        "핵심은 사건보다 다음 변화입니다. 누가 부담을 지고, 어떤 정책과 시장 반응이 이어질지 확인해야 합니다."
+        "?듭떖? ?ш굔蹂대떎 ?ㅼ쓬 蹂?붿엯?덈떎. ?꾧? 遺?댁쓣 吏怨? ?대뼡 ?뺤콉怨??쒖옣 諛섏쓳???댁뼱吏덉? ?뺤씤?댁빞 ?⑸땲??"
     )
     return ensure_thread_length(text, clean_title, blog_post)
 
@@ -1674,43 +1639,41 @@ def create_local_content_package_data(item: NewsItem, article_context: str, toda
     title = _clean_news_title(item.title)
     core = _article_core(item.title, article_context)
     questions = "\n".join(f"- {q}" for q in _make_reader_questions(item.title))
-    blog_post = f"""# {title}을 그냥 넘기면 안 되는 이유
+    blog_post = f"""# {title}??洹몃깷 ?섍린硫????섎뒗 ?댁쑀
 
-뉴스를 볼 때 가장 아쉬운 순간은 제목만 보고 지나친 뒤, 며칠 뒤에야 그 일이 내 생활과 연결되어 있었다는 사실을 깨닫는 때입니다.
+?댁뒪瑜?蹂???媛???꾩돩???쒓컙? ?쒕ぉ留?蹂닿퀬 吏?섏튇 ?? 硫곗튌 ?ㅼ뿉??洹??쇱씠 ???앺솢怨??곌껐?섏뼱 ?덉뿀?ㅻ뒗 ?ъ떎??源⑤떕???뚯엯?덈떎.
 
-이번에 눈여겨볼 소식은 "{title}"입니다. 출처는 {item.source}입니다. 이 뉴스는 단순한 사건 전달보다 앞으로의 정책, 시장, 생활 변화가 어디로 움직일지 읽는 데 의미가 있습니다.
+?대쾲???덉뿬寃⑤낵 ?뚯떇? "{title}"?낅땲?? 異쒖쿂??{item.source}?낅땲?? ???댁뒪???⑥닚???ш굔 ?꾨떖蹂대떎 ?욎쑝濡쒖쓽 ?뺤콉, ?쒖옣, ?앺솢 蹂?붽? ?대뵒濡??吏곸씪吏 ?쎈뒗 ???섎?媛 ?덉뒿?덈떎.
 
-## 1. 제목 뒤에 숨어 있는 흐름
+## 1. ?쒕ぉ ?ㅼ뿉 ?⑥뼱 ?덈뒗 ?먮쫫
 
 {core}
 
-뉴스는 갑자기 생기는 것처럼 보이지만 실제로는 이전부터 쌓인 변화가 표면으로 올라오는 경우가 많습니다. 그래서 제목만 보고 좋다, 나쁘다를 판단하기보다 배경과 후속 움직임을 함께 봐야 합니다.
+?댁뒪??媛묒옄湲??앷린??寃껋쿂??蹂댁씠吏留??ㅼ젣濡쒕뒗 ?댁쟾遺???볦씤 蹂?붽? ?쒕㈃?쇰줈 ?щ씪?ㅻ뒗 寃쎌슦媛 留롮뒿?덈떎. 洹몃옒???쒕ぉ留?蹂닿퀬 醫뗫떎, ?섏걯?ㅻ? ?먮떒?섍린蹂대떎 諛곌꼍怨??꾩냽 ?吏곸엫???④퍡 遊먯빞 ?⑸땲??
 
-## 2. 왜 지금 중요할까
+## 2. ??吏湲?以묒슂?좉퉴
 
-이런 이슈는 시간이 지나면서 생활비, 세금, 자산 가격, 투자 심리, 사업 환경으로 연결될 수 있습니다. 특히 정책과 시장이 함께 움직이는 뉴스라면 처음에는 작게 보여도 나중에는 체감 변화가 커질 수 있습니다.
+?대윴 ?댁뒋???쒓컙??吏?섎㈃???앺솢鍮? ?멸툑, ?먯궛 媛寃? ?ъ옄 ?щ━, ?ъ뾽 ?섍꼍?쇰줈 ?곌껐?????덉뒿?덈떎. ?뱁엳 ?뺤콉怨??쒖옣???④퍡 ?吏곸씠???댁뒪?쇰㈃ 泥섏쓬?먮뒗 ?묎쾶 蹂댁뿬???섏쨷?먮뒗 泥닿컧 蹂?붽? 而ㅼ쭏 ???덉뒿?덈떎.
 
-## 3. 저에게 영향을 줄 수 있는 부분
+## 3. ??먭쾶 ?곹뼢??以????덈뒗 遺遺?
+泥レ㎏, 鍮꾩슜 援ъ“媛 諛붾????덉뒿?덈떎. ?멸툑?대굹 洹쒖젣, 怨듦툒怨??섏슂??蹂?붾뒗 寃곌뎅 媛쒖씤??吏異쒓낵 ?먯궛 ?먮떒???곹뼢??以띾땲??
 
-첫째, 비용 구조가 바뀔 수 있습니다. 세금이나 규제, 공급과 수요의 변화는 결국 개인의 지출과 자산 판단에 영향을 줍니다.
+?섏㎏, ?쒖옣 ?щ━媛 ?붾뱾由????덉뒿?덈떎. ?ъ옄?먯? ?뚮퉬?먭? 媛숈? ?댁뒪瑜??ㅻⅤ寃?諛쏆븘?ㅼ씠硫?媛寃⑷낵 嫄곕옒?됱씠 癒쇱? 諛섏쓳?????덉뒿?덈떎.
 
-둘째, 시장 심리가 흔들릴 수 있습니다. 투자자와 소비자가 같은 뉴스를 다르게 받아들이면 가격과 거래량이 먼저 반응할 수 있습니다.
+?뗭㎏, ?꾩냽 ?뺤콉????以묒슂?댁쭏 ???덉뒿?덈떎. ?댁뒪??泥?諛쒗몴蹂대떎 ?댄썑 ?몃??? ?쒗뻾 ?쒓린, ?덉쇅 議곌굔???ㅼ젣 ?곹뼢??寃곗젙?섎뒗 寃쎌슦媛 留롮뒿?덈떎.
 
-셋째, 후속 정책이 더 중요해질 수 있습니다. 뉴스의 첫 발표보다 이후 세부안, 시행 시기, 예외 조건이 실제 영향을 결정하는 경우가 많습니다.
-
-## 4. 지금 바로 확인할 질문
+## 4. 吏湲?諛붾줈 ?뺤씤??吏덈Ц
 
 {questions}
 
-## 5. 마무리
+## 5. 留덈Т由?
+?대쾲 ?댁뒪???ㅻ뒛 ?섎（ ?뚮퉬?섍퀬 ?앸궪 ?뚯떇???꾨땺 ???덉뒿?덈떎. ?먮Ц怨??꾩냽 蹂대룄瑜??④퍡 蹂대㈃????蹂?붽? ???앺솢怨??먯궛 ?먮떒???대뼡 ?좏샇瑜?二쇰뒗吏 李⑤텇???뺤씤??蹂댁떆湲?諛붾엻?덈떎.
 
-이번 뉴스는 오늘 하루 소비하고 끝낼 소식이 아닐 수 있습니다. 원문과 후속 보도를 함께 보면서 이 변화가 내 생활과 자산 판단에 어떤 신호를 주는지 차분히 확인해 보시기 바랍니다.
+?ㅼ쓬?먮뒗 ???댁뒋媛 ?ㅼ젣 ?쒖옣 諛섏쓳?쇰줈 ?댁뼱吏?붿?, 愿???뺤콉怨?湲곗뾽 ??묒씠 ?대뼸寃??섏삤?붿? ?④퍡 ?먭???蹂닿쿋?듬땲??
 
-다음에는 이 이슈가 실제 시장 반응으로 이어지는지, 관련 정책과 기업 대응이 어떻게 나오는지 함께 점검해 보겠습니다.
-
-출처: {item.source}
-원문: {item.link}
-확인일: {today}"""
+異쒖쿂: {item.source}
+?먮Ц: {item.link}
+?뺤씤?? {today}"""
     tistory_post = _build_tistory_post_from_blog(blog_post, title, item.source, item.link)
     thread_post = _build_thread_post_from_blog(blog_post, title)
     slide_blocks = fallback_slide_blocks(item, article_context)
@@ -1727,11 +1690,11 @@ def create_local_content_package_data(item: NewsItem, article_context: str, toda
 def create_derivative_content_from_blog(
     blog_post: str,
     title: str = "",
-    source: str = "직접 편집",
+    source: str = "吏곸젒 ?몄쭛",
     link: str = "",
 ) -> dict[str, str]:
-    title = title.strip() or extract_title_from_text(blog_post, "직접 작성한 블로그 글")
-    source = source.strip() or "직접 편집"
+    title = title.strip() or extract_title_from_text(blog_post, "吏곸젒 ?묒꽦??釉붾줈洹?湲")
+    source = source.strip() or "吏곸젒 ?몄쭛"
     link = link.strip()
     data: dict[str, str] | None = None
     api_key = get_secret("GEMINI_API_KEY")
@@ -1743,40 +1706,40 @@ def create_derivative_content_from_blog(
 
             model = get_secret("GEMINI_MODEL") or "gemini-2.5-pro"
             prompt = f"""
-아래 블로그 글을 바탕으로 4개 콘텐츠를 새로 작성하라.
-반드시 한국어 JSON 객체 하나만 반환하라.
-키는 tistory_post, thread_post, slide_script, vrew_script만 사용하라.
+?꾨옒 釉붾줈洹?湲??諛뷀깢?쇰줈 4媛?肄섑뀗痢좊? ?덈줈 ?묒꽦?섎씪.
+諛섎뱶???쒓뎅??JSON 媛앹껜 ?섎굹留?諛섑솚?섎씪.
+?ㅻ뒗 tistory_post, thread_post, slide_script, vrew_script留??ъ슜?섎씪.
 
-공통 원칙:
-- 원문 블로그 글의 뉴스 핵심 단어, 인물, 기관, 정책명, 시장 영향을 반드시 반영한다.
-- 확인되지 않은 숫자, 발언, 일정은 새로 만들지 않는다.
-- 일반론만 반복하지 말고, 제목과 본문에 있는 구체 이슈를 중심으로 쓴다.
+怨듯넻 ?먯튃:
+- ?먮Ц 釉붾줈洹?湲???댁뒪 ?듭떖 ?⑥뼱, ?몃Ъ, 湲곌?, ?뺤콉紐? ?쒖옣 ?곹뼢??諛섎뱶??諛섏쁺?쒕떎.
+- ?뺤씤?섏? ?딆? ?レ옄, 諛쒖뼵, ?쇱젙? ?덈줈 留뚮뱾吏 ?딅뒗??
+- ?쇰컲濡좊쭔 諛섎났?섏? 留먭퀬, ?쒕ぉ怨?蹂몃Ц???덈뒗 援ъ껜 ?댁뒋瑜?以묒떖?쇰줈 ?대떎.
 
 tistory_post:
-- 블로그 글과 문장 구조가 같으면 안 된다. 티스토리용 새 글처럼 각색한다.
-- 2500~3500자, 짧은 문단, H2/H3 소제목, 목록, 마무리, 태그 5~8개 포함.
-- 문단마다 빈 줄을 넣고, 긴 문장을 계속 이어 쓰지 않는다.
+- 釉붾줈洹?湲怨?臾몄옣 援ъ“媛 媛숈쑝硫????쒕떎. ?곗뒪?좊━????湲泥섎읆 媛곸깋?쒕떎.
+- 2500~3500?? 吏㏃? 臾몃떒, H2/H3 ?뚯젣紐? 紐⑸줉, 留덈Т由? ?쒓렇 5~8媛??ы븿.
+- 臾몃떒留덈떎 鍮?以꾩쓣 ?ｊ퀬, 湲?臾몄옣??怨꾩냽 ?댁뼱 ?곗? ?딅뒗??
 
 thread_post:
-- 280~330자.
-- 뉴스의 구체 주제와 왜 지금 봐야 하는지를 포함한다.
+- 280~330??
+- ?댁뒪??援ъ껜 二쇱젣? ??吏湲?遊먯빞 ?섎뒗吏瑜??ы븿?쒕떎.
 
 slide_script:
-- 정확히 6개 슬라이드.
-- "## 슬라이드 1. ..."부터 "## 슬라이드 6. ..."까지 순서대로 작성한다.
-- 각 슬라이드는 "화면 문구:"와 "내레이션:"을 포함한다.
-- 슬라이드 1은 뉴스 제목을 한눈에 보여주는 제목 슬라이드로 만든다.
-- 모든 슬라이드에 뉴스의 실제 주제어가 드러나야 한다.
+- ?뺥솗??6媛??щ씪?대뱶.
+- "## ?щ씪?대뱶 1. ..."遺??"## ?щ씪?대뱶 6. ..."源뚯? ?쒖꽌?濡??묒꽦?쒕떎.
+- 媛??щ씪?대뱶??"?붾㈃ 臾멸뎄:"? "?대젅?댁뀡:"???ы븿?쒕떎.
+- ?щ씪?대뱶 1? ?댁뒪 ?쒕ぉ???쒕늿??蹂댁뿬二쇰뒗 ?쒕ぉ ?щ씪?대뱶濡?留뚮뱺??
+- 紐⑤뱺 ?щ씪?대뱶???댁뒪???ㅼ젣 二쇱젣?닿? ?쒕윭?섏빞 ?쒕떎.
 
 vrew_script:
-- slide_script와 같은 6개 장면 순서.
-- 말로 읽기 자연스러운 내레이션 중심으로 작성한다.
+- slide_script? 媛숈? 6媛??λ㈃ ?쒖꽌.
+- 留먮줈 ?쎄린 ?먯뿰?ㅻ윭???대젅?댁뀡 以묒떖?쇰줈 ?묒꽦?쒕떎.
 
-제목: {title}
-출처: {source}
-원문: {link}
+?쒕ぉ: {title}
+異쒖쿂: {source}
+?먮Ц: {link}
 
-블로그 글:
+釉붾줈洹?湲:
 {blog_post[:7000]}
 """
             client = genai.Client(api_key=api_key)
@@ -1821,70 +1784,70 @@ def create_gemini_content(item: NewsItem, article_context: str, use_grounding: b
     LAST_GEMINI_ERROR = ""
     api_key = get_secret("GEMINI_API_KEY")
     if not api_key:
-        LAST_GEMINI_ERROR = "GEMINI_API_KEY가 없습니다."
+        LAST_GEMINI_ERROR = "GEMINI_API_KEY媛 ?놁뒿?덈떎."
         return None
 
     try:
         from google import genai
         from google.genai import types
     except Exception as exc:
-        LAST_GEMINI_ERROR = f"Gemini 패키지를 불러오지 못했습니다: {exc}"
+        LAST_GEMINI_ERROR = f"Gemini ?⑦궎吏瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲?? {exc}"
         return None
 
     model = get_secret("GEMINI_MODEL") or "gemini-2.5-pro"
     title = _clean_news_title(item.title)
     prompt = f"""
-당신은 5060 독자를 위한 한국어 뉴스 해설 블로그 작가다.
-아래 뉴스 정보를 바탕으로 콘텐츠 5개를 작성하라.
-반드시 JSON 객체 하나만 반환하라.
-키는 blog_post, tistory_post, thread_post, slide_script, vrew_script만 사용하라.
+?뱀떊? 5060 ?낆옄瑜??꾪븳 ?쒓뎅???댁뒪 ?댁꽕 釉붾줈洹??묎???
+?꾨옒 ?댁뒪 ?뺣낫瑜?諛뷀깢?쇰줈 肄섑뀗痢?5媛쒕? ?묒꽦?섎씪.
+諛섎뱶??JSON 媛앹껜 ?섎굹留?諛섑솚?섎씪.
+?ㅻ뒗 blog_post, tistory_post, thread_post, slide_script, vrew_script留??ъ슜?섎씪.
 
-절대 규칙:
-- 기사 제목, 출처, 수집 본문에 있는 구체 주제어를 반드시 반영한다.
-- 기사 본문이 부족해도 "본문을 못 가져왔다", "정보가 부족하다"라고 독자에게 말하지 않는다.
-- 확인되지 않은 숫자, 발언, 일정, 기업명은 만들지 않는다.
-- 일반론만 반복하지 말고, 이 뉴스 제목의 핵심 쟁점을 중심으로 쓴다.
-- 문단을 길게 붙여 쓰지 말고, 읽기 쉽게 나눈다.
+?덈? 洹쒖튃:
+- 湲곗궗 ?쒕ぉ, 異쒖쿂, ?섏쭛 蹂몃Ц???덈뒗 援ъ껜 二쇱젣?대? 諛섎뱶??諛섏쁺?쒕떎.
+- 湲곗궗 蹂몃Ц??遺議깊빐??"蹂몃Ц??紐?媛?몄솕??, "?뺣낫媛 遺議깊븯???쇨퀬 ?낆옄?먭쾶 留먰븯吏 ?딅뒗??
+- ?뺤씤?섏? ?딆? ?レ옄, 諛쒖뼵, ?쇱젙, 湲곗뾽紐낆? 留뚮뱾吏 ?딅뒗??
+- ?쇰컲濡좊쭔 諛섎났?섏? 留먭퀬, ???댁뒪 ?쒕ぉ???듭떖 ?곸젏??以묒떖?쇰줈 ?대떎.
+- 臾몃떒??湲멸쾶 遺숈뿬 ?곗? 留먭퀬, ?쎄린 ?쎄쾶 ?섎늿??
 
 blog_post:
-- 2500~3500자.
-- 티스토리 블로그처럼 읽히는 실전형 뉴스 해설 글.
-- 제목은 후킹형으로 시작한다.
-- 1~5번 번호 소제목을 사용한다.
-- "왜 지금 중요한가", "저에게 어떤 영향이 있는가", "지금 확인할 것", "마무리"가 드러나야 한다.
-- 뉴스 기사이므로 허구 사례는 넣지 않는다.
+- 2500~3500??
+- ?곗뒪?좊━ 釉붾줈洹몄쿂???쏀엳???ㅼ쟾???댁뒪 ?댁꽕 湲.
+- ?쒕ぉ? ?꾪궧?뺤쑝濡??쒖옉?쒕떎.
+- 1~5踰?踰덊샇 ?뚯젣紐⑹쓣 ?ъ슜?쒕떎.
+- "??吏湲?以묒슂?쒓?", "??먭쾶 ?대뼡 ?곹뼢???덈뒗媛", "吏湲??뺤씤??寃?, "留덈Т由?媛 ?쒕윭?섏빞 ?쒕떎.
+- ?댁뒪 湲곗궗?대?濡??덇뎄 ?щ????ｌ? ?딅뒗??
 
 tistory_post:
-- blog_post를 복사하지 말고, 티스토리 업로드용으로 새롭게 각색한다.
-- 2500~3500자.
-- SEO형 제목, H2/H3 소제목, 짧은 문단, 목록, 마무리, 태그 5~8개 포함.
-- blog_post와 같은 문장 순서나 같은 표현을 반복하지 않는다.
+- blog_post瑜?蹂듭궗?섏? 留먭퀬, ?곗뒪?좊━ ?낅줈?쒖슜?쇰줈 ?덈∼寃?媛곸깋?쒕떎.
+- 2500~3500??
+- SEO???쒕ぉ, H2/H3 ?뚯젣紐? 吏㏃? 臾몃떒, 紐⑸줉, 留덈Т由? ?쒓렇 5~8媛??ы븿.
+- blog_post? 媛숈? 臾몄옣 ?쒖꽌??媛숈? ?쒗쁽??諛섎났?섏? ?딅뒗??
 
 thread_post:
-- 280~330자.
-- 뉴스의 구체 주제, 왜 지금 봐야 하는지, 독자가 확인할 포인트를 포함한다.
+- 280~330??
+- ?댁뒪??援ъ껜 二쇱젣, ??吏湲?遊먯빞 ?섎뒗吏, ?낆옄媛 ?뺤씤???ъ씤?몃? ?ы븿?쒕떎.
 
 slide_script:
-- 정확히 6개 슬라이드.
-- "## 슬라이드 1. ..."부터 "## 슬라이드 6. ..."까지 순서대로 작성한다.
-- 각 슬라이드는 "화면 문구:"와 "내레이션:"을 포함한다.
-- 슬라이드 1은 뉴스 제목이 잘 보이는 제목 슬라이드다.
-- 모든 슬라이드에 이 뉴스의 구체 내용과 주제어가 들어가야 한다.
+- ?뺥솗??6媛??щ씪?대뱶.
+- "## ?щ씪?대뱶 1. ..."遺??"## ?щ씪?대뱶 6. ..."源뚯? ?쒖꽌?濡??묒꽦?쒕떎.
+- 媛??щ씪?대뱶??"?붾㈃ 臾멸뎄:"? "?대젅?댁뀡:"???ы븿?쒕떎.
+- ?щ씪?대뱶 1? ?댁뒪 ?쒕ぉ????蹂댁씠???쒕ぉ ?щ씪?대뱶??
+- 紐⑤뱺 ?щ씪?대뱶?????댁뒪??援ъ껜 ?댁슜怨?二쇱젣?닿? ?ㅼ뼱媛???쒕떎.
 
 vrew_script:
-- slide_script와 같은 순서의 6개 장면.
-- 말로 읽기 자연스러운 내레이션 대본으로 쓴다.
+- slide_script? 媛숈? ?쒖꽌??6媛??λ㈃.
+- 留먮줈 ?쎄린 ?먯뿰?ㅻ윭???대젅?댁뀡 ?蹂몄쑝濡??대떎.
 
-뉴스 제목:
+?댁뒪 ?쒕ぉ:
 {title}
 
-출처:
+異쒖쿂:
 {item.source}
 
-원문 링크:
+?먮Ц 留곹겕:
 {item.link}
 
-수집된 기사 정보:
+?섏쭛??湲곗궗 ?뺣낫:
 {article_context}
 """
 
@@ -1905,7 +1868,7 @@ vrew_script:
         )
         data = extract_json_object(response.text)
     except Exception as exc:
-        LAST_GEMINI_ERROR = f"Gemini 생성 실패: {exc}"
+        LAST_GEMINI_ERROR = f"Gemini ?앹꽦 ?ㅽ뙣: {exc}"
         return None
 
     blog_post = str(data.get("blog_post", "")).strip()
@@ -1915,10 +1878,10 @@ vrew_script:
     vrew_script = str(data.get("vrew_script", "")).strip()
 
     if len(blog_post) < 1000:
-        LAST_GEMINI_ERROR = f"Gemini 응답이 너무 짧습니다: {len(blog_post)}자"
+        LAST_GEMINI_ERROR = f"Gemini blog post was too short: {len(blog_post)} chars"
         return None
     if not all([blog_post, tistory_post, thread_post, slide_script, vrew_script]):
-        LAST_GEMINI_ERROR = "Gemini 응답에서 필요한 항목 일부가 비어 있습니다."
+        LAST_GEMINI_ERROR = "Gemini response missed one or more required content fields."
         return None
 
     slide_blocks = ensure_six_slide_blocks(slide_script, item, article_context)
@@ -1933,11 +1896,12 @@ vrew_script:
 
 def clean_narration_text(text: str) -> str:
     replacements = {
-        "주요내용": "중요한 내용",
-        "주요 내용": "중요한 내용",
-        "핵심메지시": "중요한 메시지",
-        "핵심메시지": "중요한 메시지",
-        "핵심 메시지": "중요한 메시지",
+        "주요내용": "내용",
+        "주요 내용": "내용",
+        "핵심메시지": "핵심",
+        "핵심 메시지": "핵심",
+        "핵심메세지": "핵심",
+        "핵심 메세지": "핵심",
     }
     cleaned = text or ""
     for old, new in replacements.items():
@@ -2016,6 +1980,7 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
     timeout = int(settings.get("request_timeout_seconds", os.getenv("REQUEST_TIMEOUT_SECONDS", "15")))
     blog_enabled = bool(settings.get("blog_enabled", False))
     pick_index = int(settings.get("blog_pick_index", 1))
+    low_cost_mode = as_bool(settings.get("low_cost_mode", os.getenv("LOW_COST_MODE", "true")), True)
     candidate_limit = int(settings.get("content_candidate_limit", os.getenv("CONTENT_CANDIDATE_LIMIT", "10")))
     fetch_limit = max(limit, candidate_limit) if blog_enabled and pick_index == 0 else limit
     items = fetch_news(query, fetch_limit, timeout)
@@ -2035,11 +2000,17 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
         content_package = create_content_package(
             selected_item,
             str(settings.get("blog_draft_dir", "blog_drafts")),
+            low_cost_mode=low_cost_mode,
         )
+        if content_package is not None and low_cost_mode:
+            content_message = (
+                "Gemini 비용 절약 모드가 켜져 있습니다. Gemini는 블로그 글만 작성하고, "
+                "티스토리/쓰레드/유튜브/Vrew/PPTX 콘텐츠는 블로그 글을 바탕으로 로컬에서 만들었습니다."
+            )
         if content_package is None:
             error_detail = LAST_GEMINI_ERROR or "상세 오류 없음"
             content_message = (
-                "Gemini Pro가 3000자 블로그 글을 제대로 만들지 못해 콘텐츠 패키지를 저장하지 않았습니다. "
+                "Gemini가 블로그 글을 만들지 못해 콘텐츠 패키지를 저장하지 않았습니다. "
                 f"원인: {error_detail}"
             )
 
@@ -2058,7 +2029,7 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
     app_password = get_secret("GMAIL_APP_PASSWORD")
     recipient = str(settings.get("recipient_email") or get_secret("RECIPIENT_EMAIL") or sender).strip()
     if not sender or not app_password or not recipient:
-        raise RuntimeError("Gmail 주소, 앱 비밀번호, 받는 이메일 설정이 필요합니다.")
+        raise RuntimeError("Gmail 二쇱냼, ??鍮꾨?踰덊샇, 諛쏅뒗 ?대찓???ㅼ젙???꾩슂?⑸땲??")
 
     send_email(build_email(sender, recipient, email_items, query, content_package), sender, app_password)
     return {

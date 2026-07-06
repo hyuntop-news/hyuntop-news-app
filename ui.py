@@ -1,4 +1,4 @@
-import html
+﻿import html
 import hmac
 import asyncio
 import json
@@ -31,7 +31,7 @@ LOG_PATH = BASE_DIR / "logs" / "morning-news.log"
 load_env_file()
 
 DEFAULT_SETTINGS = {
-    "news_query": "과학",
+    "news_query": "怨쇳븰",
     "news_limit": 5,
     "recipient_email": "",
     "notification_channel": "email",
@@ -40,6 +40,7 @@ DEFAULT_SETTINGS = {
     "blog_pick_index": 1,
     "blog_draft_dir": "blog_drafts",
     "content_candidate_limit": 10,
+    "low_cost_mode": True,
     "retry_count": 3,
     "retry_delay_seconds": 3,
     "request_timeout_seconds": 10,
@@ -76,16 +77,16 @@ def run_powershell(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 def read_recent_logs(limit: int = 8) -> list[str]:
     if not LOG_PATH.exists():
-        return ["아직 실행 기록이 없습니다."]
+        return ["?꾩쭅 ?ㅽ뻾 湲곕줉???놁뒿?덈떎."]
 
     lines = LOG_PATH.read_text(encoding="utf-8", errors="replace").splitlines()
-    return lines[-limit:] or ["아직 실행 기록이 없습니다."]
+    return lines[-limit:] or ["?꾩쭅 ?ㅽ뻾 湲곕줉???놁뒿?덈떎."]
 
 
 def get_recent_draft(settings: dict) -> str:
     draft_dir = BASE_DIR / str(settings.get("blog_draft_dir") or "blog_drafts")
     if not draft_dir.exists():
-        return "콘텐츠 없음"
+        return "肄섑뀗痢??놁쓬"
 
     packages = sorted(
         [
@@ -97,7 +98,7 @@ def get_recent_draft(settings: dict) -> str:
         reverse=True,
     )
     if not packages:
-        return "콘텐츠 없음"
+        return "肄섑뀗痢??놁쓬"
 
     return packages[0].name
 
@@ -135,7 +136,7 @@ def content_package_mtime(path: Path) -> float:
 
 def read_text_if_exists(path: Path) -> str:
     if not path.exists():
-        return "아직 저장된 내용이 없습니다."
+        return "?꾩쭅 ??λ맂 ?댁슜???놁뒿?덈떎."
     return path.read_text(encoding="utf-8", errors="replace")
 
 
@@ -152,9 +153,9 @@ def parse_slide_headings(slide_text: str) -> list[str]:
     current = ""
     for line in slide_text.splitlines():
         clean = line.strip()
-        if clean.startswith("## 슬라이드"):
+        if clean.startswith("## ?щ씪?대뱶"):
             current = clean.lstrip("#").strip()
-        elif current and clean and clean not in {"화면 문구", "내레이션"}:
+        elif current and clean and clean not in {"?붾㈃ 臾멸뎄", "?대젅?댁뀡"}:
             headings.append(f"{current}: {clean}")
             current = ""
     return headings[:6]
@@ -191,7 +192,7 @@ def get_slide_asset(asset_dir: Path, index: int, allowed_exts: set[str]) -> Path
 def save_slide_asset(package_dir: Path, index: int, uploaded_file) -> Path:
     suffix = Path(uploaded_file.name).suffix.lower()
     if suffix not in IMAGE_ASSET_EXTS | VIDEO_ASSET_EXTS:
-        raise ValueError("이미지 또는 MP4 영상 파일만 넣을 수 있습니다.")
+        raise ValueError("?대?吏 ?먮뒗 MP4 ?곸긽 ?뚯씪留??ｌ쓣 ???덉뒿?덈떎.")
 
     asset_dir = get_slide_asset_dir(package_dir)
     asset_dir.mkdir(parents=True, exist_ok=True)
@@ -209,7 +210,7 @@ def guess_image_query(slide: dict[str, str], fallback: str) -> str:
         for part in [slide.get("screen", ""), slide.get("title", ""), fallback]
         if part and part.strip()
     )
-    text = re.sub(r"[#*_`\"'“”‘’()\[\]{}<>|]", " ", text)
+    text = re.sub(r"[#*_`\"'?쒋앪섃?)\[\]{}<>|]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:80] or fallback or "news"
 
@@ -232,12 +233,12 @@ def download_pexels_image(query: str, output_path: Path, api_key: str) -> None:
 
     photos = payload.get("photos") or []
     if not photos:
-        raise RuntimeError(f"'{query}' 검색 결과가 없습니다.")
+        raise RuntimeError(f"'{query}' 寃??寃곌낵媛 ?놁뒿?덈떎.")
 
     src = photos[0].get("src", {})
     image_url = src.get("landscape") or src.get("large") or src.get("original")
     if not image_url:
-        raise RuntimeError("이미지 주소를 찾지 못했습니다.")
+        raise RuntimeError("?대?吏 二쇱냼瑜?李얠? 紐삵뻽?듬땲??")
 
     image_request = urllib.request.Request(image_url, headers={"User-Agent": "HYUNTOP-News-Dashboard/1.0"})
     with urllib.request.urlopen(image_request, timeout=30) as response:
@@ -247,12 +248,12 @@ def download_pexels_image(query: str, output_path: Path, api_key: str) -> None:
 def auto_fill_slide_images(package_dir: Path) -> list[str]:
     api_key = get_config_value("PEXELS_API_KEY")
     if not api_key:
-        raise RuntimeError("PEXELS_API_KEY가 없습니다. 로컬 .env 또는 Streamlit Secrets에 추가해 주세요.")
+        raise RuntimeError("PEXELS_API_KEY媛 ?놁뒿?덈떎. 濡쒖뺄 .env ?먮뒗 Streamlit Secrets??異붽???二쇱꽭??")
 
     slide_text = read_text_if_exists(package_dir / "04-youtube-slides.md")
     slides = parse_slide_blocks_for_assets(slide_text)
     if not slides:
-        raise RuntimeError("유튜브 슬라이드 대본이 없어 자동 이미지를 찾을 수 없습니다.")
+        raise RuntimeError("?좏뒠釉??щ씪?대뱶 ?蹂몄씠 ?놁뼱 ?먮룞 ?대?吏瑜?李얠쓣 ???놁뒿?덈떎.")
 
     asset_dir = get_slide_asset_dir(package_dir)
     asset_dir.mkdir(parents=True, exist_ok=True)
@@ -261,12 +262,12 @@ def auto_fill_slide_images(package_dir: Path) -> list[str]:
     results: list[str] = []
     for index, slide in enumerate(slides[:6], 1):
         if get_slide_asset(asset_dir, index, IMAGE_ASSET_EXTS | VIDEO_ASSET_EXTS):
-            results.append(f"슬라이드 {index}: 기존 파일 유지")
+            results.append(f"?щ씪?대뱶 {index}: 湲곗〈 ?뚯씪 ?좎?")
             continue
         query = guess_image_query(slide, title)
         output_path = asset_dir / f"slide_{index:02}.jpg"
         download_pexels_image(query, output_path, api_key)
-        results.append(f"슬라이드 {index}: 자동 이미지 추가")
+        results.append(f"?щ씪?대뱶 {index}: ?먮룞 ?대?吏 異붽?")
     return results
 
 
@@ -386,7 +387,7 @@ def create_slide_images(slide_text: str, output_dir: Path, asset_dir: Path | Non
             y += 70
 
         draw.rounded_rectangle((84, 450, 1196, 642), radius=24, fill="#0F172A", outline="#334155", width=2)
-        draw.text((116, 474), "내레이션", font=small_font, fill="#22D3EE")
+        draw.text((116, 474), "?대젅?댁뀡", font=small_font, fill="#22D3EE")
         narration_lines = wrap_text_by_width(draw, slide["narration"], body_font, 1000)
         y = 512
         for line in narration_lines[:3]:
@@ -435,7 +436,7 @@ def create_slide_images(slide_text: str, output_dir: Path, asset_dir: Path | Non
         draw = ImageDraw.Draw(canvas)
 
         draw.rounded_rectangle((44, 34, 1236, 116), radius=18, fill="#111827", outline="#22D3EE", width=2)
-        title = slide.get("title", f"슬라이드 {index}").strip() or f"슬라이드 {index}"
+        title = slide.get("title", f"?щ씪?대뱶 {index}").strip() or f"?щ씪?대뱶 {index}"
         title_lines = wrap_text_by_width(draw, title, title_font, 1110)
         y = 54
         for line in title_lines[:2]:
@@ -452,7 +453,7 @@ def create_slide_images(slide_text: str, output_dir: Path, asset_dir: Path | Non
         else:
             draw.rounded_rectangle(image_box, radius=22, fill="#0F172A", outline="#334155", width=3)
             draw.text((92, 326), "HYUNTOP NEWS", font=title_font, fill="#64748B")
-            draw.text((92, 382), "이미지 영역", font=small_font, fill="#94A3B8")
+            draw.text((92, 382), "?대?吏 ?곸뿭", font=small_font, fill="#94A3B8")
 
         content_box = (610, 150, 1226, 430)
         draw.rounded_rectangle(content_box, radius=22, fill="#111827", outline="#334155", width=2)
@@ -465,7 +466,7 @@ def create_slide_images(slide_text: str, output_dir: Path, asset_dir: Path | Non
 
         narration_box = (610, 460, 1226, 642)
         draw.rounded_rectangle(narration_box, radius=22, fill="#0F172A", outline="#334155", width=2)
-        draw.text((646, 482), "내레이션", font=small_font, fill="#22D3EE")
+        draw.text((646, 482), "?대젅?댁뀡", font=small_font, fill="#22D3EE")
         narration = slide.get("narration", "").strip()
         narration_lines = wrap_text_by_width(draw, narration, body_font, 540)
         y = 518
@@ -490,7 +491,7 @@ def parse_slide_blocks_for_assets(slide_text: str) -> list[dict[str, str]]:
         if not clean:
             continue
 
-        if clean.startswith("##") and ("슬라이드" in clean or "Slide" in clean):
+        if clean.startswith("##") and ("?щ씪?대뱶" in clean or "Slide" in clean):
             if current:
                 slides.append(current)
             current = {"title": clean.lstrip("# ").strip(), "screen": "", "narration": ""}
@@ -530,16 +531,27 @@ def parse_slide_blocks_for_assets(slide_text: str) -> list[dict[str, str]]:
 
 def clean_video_narration(text: str) -> str:
     replacements = {
-        "주요내용": "중요한 내용",
-        "주요 내용": "중요한 내용",
-        "핵심메지시": "중요한 메시지",
-        "핵심메시지": "중요한 메시지",
-        "핵심 메시지": "중요한 메시지",
+        "주요내용": "내용",
+        "주요 내용": "내용",
+        "핵심메시지": "핵심",
+        "핵심 메시지": "핵심",
+        "핵심메세지": "핵심",
+        "핵심 메세지": "핵심",
     }
     cleaned = text or ""
     for old, new in replacements.items():
         cleaned = cleaned.replace(old, new)
     return cleaned
+
+
+def clear_rendered_video_outputs(package_dir: Path) -> None:
+    video_dir = package_dir / "video_package"
+    for folder_name in ("audio", "clips"):
+        shutil.rmtree(video_dir / folder_name, ignore_errors=True)
+    for file_name in ("final-video.mp4", "concat-list.txt"):
+        file_path = video_dir / file_name
+        if file_path.exists():
+            file_path.unlink()
 
 
 def download_pexels_image(query: str, output_path: Path, api_key: str, page: int = 1) -> None:
@@ -563,12 +575,12 @@ def download_pexels_image(query: str, output_path: Path, api_key: str, page: int
     if not photos and page > 1:
         return download_pexels_image(query, output_path, api_key, page=1)
     if not photos:
-        raise RuntimeError(f"'{query}' 검색 결과가 없습니다.")
+        raise RuntimeError(f"'{query}' 寃??寃곌낵媛 ?놁뒿?덈떎.")
 
     src = photos[0].get("src", {})
     image_url = src.get("landscape") or src.get("large") or src.get("original")
     if not image_url:
-        raise RuntimeError("이미지 주소를 찾지 못했습니다.")
+        raise RuntimeError("?대?吏 二쇱냼瑜?李얠? 紐삵뻽?듬땲??")
 
     image_request = urllib.request.Request(image_url, headers={"User-Agent": "HYUNTOP-News-Dashboard/1.0"})
     with urllib.request.urlopen(image_request, timeout=30) as response:
@@ -578,12 +590,12 @@ def download_pexels_image(query: str, output_path: Path, api_key: str, page: int
 def auto_fill_slide_images(package_dir: Path) -> list[str]:
     api_key = get_config_value("PEXELS_API_KEY")
     if not api_key:
-        raise RuntimeError("PEXELS_API_KEY가 없습니다. 로컬 .env 또는 Streamlit Secrets에 추가해 주세요.")
+        raise RuntimeError("PEXELS_API_KEY媛 ?놁뒿?덈떎. 濡쒖뺄 .env ?먮뒗 Streamlit Secrets??異붽???二쇱꽭??")
 
     slide_text = read_text_if_exists(package_dir / "04-youtube-slides.md")
     slides = parse_slide_blocks_for_assets(slide_text)
     if not slides:
-        raise RuntimeError("유튜브 슬라이드 대본이 없어 자동 이미지를 찾을 수 없습니다.")
+        raise RuntimeError("?좏뒠釉??щ씪?대뱶 ?蹂몄씠 ?놁뼱 ?먮룞 ?대?吏瑜?李얠쓣 ???놁뒿?덈떎.")
 
     asset_dir = get_slide_asset_dir(package_dir)
     asset_dir.mkdir(parents=True, exist_ok=True)
@@ -592,13 +604,13 @@ def auto_fill_slide_images(package_dir: Path) -> list[str]:
     results: list[str] = []
     for index, slide in enumerate(slides[:6], 1):
         if get_slide_asset(asset_dir, index, VIDEO_ASSET_EXTS):
-            results.append(f"슬라이드 {index}: 기존 영상 파일 유지")
+            results.append(f"?щ씪?대뱶 {index}: 湲곗〈 ?곸긽 ?뚯씪 ?좎?")
             continue
         query_seed = " ".join([slide.get("title", ""), slide.get("screen", ""), title]).strip()
         query = guess_image_query({"title": query_seed, "screen": slide.get("screen", "")}, title)
         output_path = asset_dir / f"slide_{index:02}.jpg"
         download_pexels_image(query, output_path, api_key, page=index)
-        results.append(f"슬라이드 {index}: 서로 다른 자동 이미지 추가")
+        results.append(f"?щ씪?대뱶 {index}: ?쒕줈 ?ㅻⅨ ?먮룞 ?대?吏 異붽?")
     return results
 
 
@@ -634,11 +646,11 @@ def create_slide_images(slide_text: str, output_dir: Path, asset_dir: Path | Non
         canvas = Image.new("RGB", (1280, 720), "#050A18")
         draw = ImageDraw.Draw(canvas)
 
-        raw_title = slide.get("title", f"슬라이드 {index}").strip() or f"슬라이드 {index}"
+        raw_title = slide.get("title", f"?щ씪?대뱶 {index}").strip() or f"?щ씪?대뱶 {index}"
         screen = slide.get("screen", "").strip() or raw_title
         header_title = screen if index == 1 else raw_title
-        if index == 1 and not header_title.startswith("슬라이드 1"):
-            header_title = f"슬라이드 1. {header_title}"
+        if index == 1 and not header_title.startswith("?щ씪?대뱶 1"):
+            header_title = f"?щ씪?대뱶 1. {header_title}"
 
         draw.rounded_rectangle((44, 34, 1236, 124), radius=18, fill="#111827", outline="#22D3EE", width=2)
         title_lines = wrap_text_by_width(draw, header_title, title_font, 1110)
@@ -657,7 +669,7 @@ def create_slide_images(slide_text: str, output_dir: Path, asset_dir: Path | Non
         else:
             draw.rounded_rectangle(image_box, radius=22, fill="#0F172A", outline="#334155", width=3)
             draw.text((92, 326), "HYUNTOP NEWS", font=title_font, fill="#64748B")
-            draw.text((92, 382), "이미지 영역", font=small_font, fill="#94A3B8")
+            draw.text((92, 382), "?대?吏 ?곸뿭", font=small_font, fill="#94A3B8")
 
         content_box = (610, 150, 1226, 430)
         draw.rounded_rectangle(content_box, radius=22, fill="#111827", outline="#334155", width=2)
@@ -669,7 +681,7 @@ def create_slide_images(slide_text: str, output_dir: Path, asset_dir: Path | Non
 
         narration_box = (610, 460, 1226, 642)
         draw.rounded_rectangle(narration_box, radius=22, fill="#0F172A", outline="#334155", width=2)
-        draw.text((646, 482), "내레이션", font=small_font, fill="#22D3EE")
+        draw.text((646, 482), "?대젅?댁뀡", font=small_font, fill="#22D3EE")
         narration = clean_video_narration(slide.get("narration", "").strip())
         narration_lines = wrap_text_by_width(draw, narration, body_font, 540)
         y = 518
@@ -689,7 +701,7 @@ def create_video_package(package_dir: Path) -> Path:
     slide_text = read_text_if_exists(package_dir / "04-youtube-slides.md")
     vrew_text = read_text_if_exists(package_dir / "05-vrew-script.txt")
     title = extract_markdown_title(blog_text, package_dir.name)
-    short_title = title.replace("지금 놓치면 뒤늦게 알게 됩니다:", "").strip(" -")
+    short_title = title.replace("吏湲??볦튂硫??ㅻ뒭寃??뚭쾶 ?⑸땲??", "").strip(" -")
     package_name = safe_video_name(short_title)
 
     video_dir = package_dir / "video_package"
@@ -717,61 +729,57 @@ def create_video_package(package_dir: Path) -> Path:
     slide_lines = parse_slide_headings(slide_text)
     chapters = "\n".join(f"{index - 1}:00 {line}" for index, line in enumerate(slide_lines, start=1))
     if not chapters:
-        chapters = "0:00 오프닝\n0:30 핵심 내용\n1:00 마무리"
+        chapters = "0:00 시작\n0:30 주요 흐름\n1:00 마무리"
 
-    upload_info = f"""# 유튜브 업로드 패키지
+    upload_info = f"""# ?좏뒠釉??낅줈???⑦궎吏
 
-## 제목 후보
+## ?쒕ぉ ?꾨낫
 1. {short_title}
-2. 지금 놓치면 늦는 뉴스: {short_title}
-3. 한눈에 보는 오늘의 핵심 이슈
-4. 뉴스가 말해주는 다음 변화
-5. 이 흐름을 지금 봐야 하는 이유
+2. 吏湲??볦튂硫???뒗 ?댁뒪: {short_title}
+3. ?쒕늿??蹂대뒗 ?ㅻ뒛???듭떖 ?댁뒋
+4. ?댁뒪媛 留먰빐二쇰뒗 ?ㅼ쓬 蹂??5. ???먮쫫??吏湲?遊먯빞 ?섎뒗 ?댁쑀
 
-## 설명란 초안
-오늘 영상에서는 아래 뉴스를 바탕으로 핵심 흐름을 빠르게 정리합니다.
+## ?ㅻ챸? 珥덉븞
+?ㅻ뒛 ?곸긽?먯꽌???꾨옒 ?댁뒪瑜?諛뷀깢?쇰줈 ?듭떖 ?먮쫫??鍮좊Ⅴ寃??뺣━?⑸땲??
 
 {short_title}
 
-원문과 관련 정보를 함께 확인하면서, 이 이슈가 왜 중요한지와 앞으로 무엇을 봐야 하는지 살펴봅니다.
+?먮Ц怨?愿???뺣낫瑜??④퍡 ?뺤씤?섎㈃?? ???댁뒋媛 ??以묒슂?쒖?? ?욎쑝濡?臾댁뾿??遊먯빞 ?섎뒗吏 ?댄렣遊낅땲??
 
-## 챕터
+## 梨뺥꽣
 {chapters}
 
-## 해시태그
-#뉴스정리 #경제뉴스 #오늘의뉴스 #이슈분석 #유튜브쇼츠 #시사뉴스 #트렌드
-"""
+## ?댁떆?쒓렇
+#?댁뒪?뺣━ #寃쎌젣?댁뒪 #?ㅻ뒛?섎돱??#?댁뒋遺꾩꽍 #?좏뒠釉뚯눥痢?#?쒖궗?댁뒪 #?몃젋??"""
 
-    thumbnail_text = f"""# 썸네일 문구 후보
+    thumbnail_text = f"""# ?몃꽕??臾멸뎄 ?꾨낫
 
-1. 지금 놓치면 늦습니다
-2. 이 뉴스가 중요한 이유
-3. 조용히 바뀌는 흐름
-4. 한눈에 보는 핵심 변화
-5. 앞으로 더 중요해질 이슈
+1. 吏湲??볦튂硫???뒿?덈떎
+2. ???댁뒪媛 以묒슂???댁쑀
+3. 議곗슜??諛붾뚮뒗 ?먮쫫
+4. ?쒕늿??蹂대뒗 ?듭떖 蹂??5. ?욎쑝濡???以묒슂?댁쭏 ?댁뒋
 6. {short_title[:22]}
 """
 
-    checklist = """# 영상 제작 체크리스트
+    checklist = """# ?곸긽 ?쒖옉 泥댄겕由ъ뒪??
+## Vrew ?묒뾽
+- vrew-script.txt ?닿린
+- Vrew???蹂?遺숈뿬?ｊ린
+- AI ?뚯꽦 ?좏깮
+- ?먮쭑 ?먮룞 ?앹꽦 ?뺤씤
 
-## Vrew 작업
-- vrew-script.txt 열기
-- Vrew에 대본 붙여넣기
-- AI 음성 선택
-- 자막 자동 생성 확인
+## ?щ씪?대뱶 ?묒뾽
+- youtube-slides.pptx ?닿린
+- ?щ씪?대뱶 1~6 ?뺤씤
+- ?꾩슂?섎㈃ ?대?吏???꾩씠肄?異붽?
+- Vrew ?먮뒗 ?몄쭛?댁뿉 ?щ씪?대뱶 ?쎌엯
 
-## 슬라이드 작업
-- youtube-slides.pptx 열기
-- 슬라이드 1~6 확인
-- 필요하면 이미지나 아이콘 추가
-- Vrew 또는 편집툴에 슬라이드 삽입
-
-## 업로드 전 확인
-- 제목 후보 중 하나 선택
-- 설명란 붙여넣기
-- 해시태그 확인
-- 썸네일 문구 선택
-- 저작권 문제 없는 이미지/음원 사용
+## ?낅줈?????뺤씤
+- ?쒕ぉ ?꾨낫 以??섎굹 ?좏깮
+- ?ㅻ챸? 遺숈뿬?ｊ린
+- ?댁떆?쒓렇 ?뺤씤
+- ?몃꽕??臾멸뎄 ?좏깮
+- ??묎텒 臾몄젣 ?녿뒗 ?대?吏/?뚯썝 ?ъ슜
 """
 
     (video_dir / "upload-info.md").write_text(upload_info, encoding="utf-8")
@@ -809,8 +817,8 @@ def create_google_tts_audio(text: str, output_path: Path) -> bool:
         model = os.getenv("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview").strip()
         voice_name = os.getenv("GEMINI_TTS_VOICE", "Kore").strip()
         prompt = (
-            "다음 한국어 뉴스 영상 내레이션을 차분하고 신뢰감 있는 톤으로 읽어줘. "
-            "문장 사이에는 자연스럽게 짧게 쉬어줘.\n\n"
+            "?ㅼ쓬 ?쒓뎅???댁뒪 ?곸긽 ?대젅?댁뀡??李⑤텇?섍퀬 ?좊ː媛??덈뒗 ?ㅼ쑝濡??쎌뼱以? "
+            "臾몄옣 ?ъ씠?먮뒗 ?먯뿰?ㅻ읇寃?吏㏐쾶 ?ъ뼱以?\n\n"
             f"{text}"
         )
         response = client.models.generate_content(
@@ -879,7 +887,7 @@ $speaker.Dispose()
             timeout=120,
         )
         if result.returncode != 0:
-            message = result.stderr.strip() or result.stdout.strip() or "음성 파일을 만들지 못했습니다."
+            message = result.stderr.strip() or result.stdout.strip() or "?뚯꽦 ?뚯씪??留뚮뱾吏 紐삵뻽?듬땲??"
             raise RuntimeError(message[-1200:])
     finally:
         text_path.unlink(missing_ok=True)
@@ -889,7 +897,7 @@ $speaker.Dispose()
 def run_command(command: list[str]) -> None:
     result = subprocess.run(command, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=300)
     if result.returncode != 0:
-        message = result.stderr.strip() or result.stdout.strip() or "영상 생성 명령이 실패했습니다."
+        message = result.stderr.strip() or result.stdout.strip() or "?곸긽 ?앹꽦 紐낅졊???ㅽ뙣?덉뒿?덈떎."
         raise RuntimeError(message[-1200:])
 
 
@@ -923,8 +931,8 @@ def get_ffmpeg_path() -> str:
         str(VENDOR_DIR / "imageio_ffmpeg" / "binaries"),
     ]
     raise RuntimeError(
-        "ffmpeg 실행 파일을 찾지 못했습니다. 현재 실행 폴더: "
-        f"{BASE_DIR} / 확인한 위치: {' | '.join(checked_paths)}"
+        "ffmpeg ?ㅽ뻾 ?뚯씪??李얠? 紐삵뻽?듬땲?? ?꾩옱 ?ㅽ뻾 ?대뜑: "
+        f"{BASE_DIR} / ?뺤씤???꾩튂: {' | '.join(checked_paths)}"
     )
 
 
@@ -933,19 +941,26 @@ def create_mp4_video(package_dir: Path, progress_callback=None) -> Path:
         if progress_callback:
             progress_callback(step, total, message)
 
-    report(1, 6, "영상 재료를 확인하는 중입니다.")
+    report(1, 6, "?곸긽 ?щ즺瑜??뺤씤?섎뒗 以묒엯?덈떎.")
     slide_text = read_text_if_exists(package_dir / "04-youtube-slides.md")
     slides = parse_slide_blocks_for_assets(slide_text)
     if not slides:
-        raise RuntimeError("유튜브 슬라이드 대본을 찾지 못했습니다. 먼저 콘텐츠 패키지를 생성하세요.")
+        raise RuntimeError("?좏뒠釉??щ씪?대뱶 ?蹂몄쓣 李얠? 紐삵뻽?듬땲?? 癒쇱? 肄섑뀗痢??⑦궎吏瑜??앹꽦?섏꽭??")
 
-    report(2, 6, "영상 제작 패키지를 준비하는 중입니다.")
+    report(2, 6, "?곸긽 ?쒖옉 ?⑦궎吏瑜?以鍮꾪븯??以묒엯?덈떎.")
+    vrew_text = read_text_if_exists(package_dir / "05-vrew-script.txt")
+    vrew_slides = parse_slide_blocks_for_assets(vrew_text)
+
     create_video_package(package_dir)
     video_dir = package_dir / "video_package"
     slide_image_dir = video_dir / "slide_images"
     asset_dir = get_slide_asset_dir(package_dir)
     audio_dir = video_dir / "audio"
     clip_dir = video_dir / "clips"
+    if audio_dir.exists():
+        shutil.rmtree(audio_dir)
+    if clip_dir.exists():
+        shutil.rmtree(clip_dir)
     audio_dir.mkdir(parents=True, exist_ok=True)
     clip_dir.mkdir(parents=True, exist_ok=True)
 
@@ -954,15 +969,21 @@ def create_mp4_video(package_dir: Path, progress_callback=None) -> Path:
     total_steps = max(len(slides) + 4, 6)
 
     for index, slide in enumerate(slides, 1):
-        report(index + 2, total_steps, f"{index}번 슬라이드 음성과 영상 조각을 만드는 중입니다.")
+        report(index + 2, total_steps, f"{index}踰??щ씪?대뱶 ?뚯꽦怨??곸긽 議곌컖??留뚮뱶??以묒엯?덈떎.")
         image_path = slide_image_dir / f"slide_{index:02}.png"
         video_asset = get_slide_asset(asset_dir, index, VIDEO_ASSET_EXTS) if asset_dir.exists() else None
         audio_path = audio_dir / f"slide_{index:02}.wav"
         clip_path = clip_dir / f"clip_{index:02}.mp4"
-        narration = clean_video_narration(slide.get("narration", "").strip() or slide.get("screen", "").strip() or "다음 내용을 확인해 보겠습니다.")
+        narration = clean_video_narration(slide.get("narration", "").strip() or slide.get("screen", "").strip() or "?ㅼ쓬 ?댁슜???뺤씤??蹂닿쿋?듬땲??")
 
-        if not audio_path.exists():
-            asyncio.run(create_tts_audio(narration, audio_path))
+        narration_slide = vrew_slides[index - 1] if index <= len(vrew_slides) else slide
+        narration = clean_video_narration(
+            narration_slide.get("narration", "").strip()
+            or slide.get("narration", "").strip()
+            or slide.get("screen", "").strip()
+            or narration
+        )
+        asyncio.run(create_tts_audio(narration, audio_path))
 
         if video_asset:
             run_command(
@@ -1016,7 +1037,7 @@ def create_mp4_video(package_dir: Path, progress_callback=None) -> Path:
             )
         clip_paths.append(clip_path)
 
-    report(total_steps - 1, total_steps, "영상 조각을 하나의 MP4로 합치는 중입니다.")
+    report(total_steps - 1, total_steps, "?곸긽 議곌컖???섎굹??MP4濡??⑹튂??以묒엯?덈떎.")
     concat_path = video_dir / "concat-list.txt"
     concat_path.write_text(
         "\n".join(f"file '{clip_path.as_posix()}'" for clip_path in clip_paths),
@@ -1038,20 +1059,20 @@ def create_mp4_video(package_dir: Path, progress_callback=None) -> Path:
             str(final_video),
         ]
     )
-    report(total_steps, total_steps, "MP4 영상 생성이 완료되었습니다.")
+    report(total_steps, total_steps, "MP4 ?곸긽 ?앹꽦???꾨즺?섏뿀?듬땲??")
     return final_video
 
 
 def show_content_viewer(settings: dict) -> None:
     package_dir = get_recent_content_package(settings)
     if package_dir is None:
-        st.info("아직 저장된 콘텐츠 패키지가 없습니다. '지금 테스트 실행'을 누르면 생성됩니다.")
+        st.info("?꾩쭅 ??λ맂 肄섑뀗痢??⑦궎吏媛 ?놁뒿?덈떎. '吏湲??뚯뒪???ㅽ뻾'???꾨Ⅴ硫??앹꽦?⑸땲??")
         return
 
     st.markdown(
         f"""
         <div class="side-note">
-            <strong>최근 저장 콘텐츠</strong>
+            <strong>理쒓렐 ???肄섑뀗痢?/strong>
             {html.escape(package_dir.name)}
         </div>
         """,
@@ -1076,7 +1097,7 @@ def show_content_viewer(settings: dict) -> None:
     if selected_content in editable_labels:
         file_path = package_dir / content_menu[selected_content]
         current_text = read_text_if_exists(file_path)
-        editor_height = 160 if selected_content == "쓰레드" else 560
+        editor_height = 180 if selected_content == "쓰레드" else 560
         file_version = int(file_path.stat().st_mtime) if file_path.exists() else 0
         edited_text = st.text_area(
             selected_content,
@@ -1089,15 +1110,19 @@ def show_content_viewer(settings: dict) -> None:
         with col_save:
             if st.button("수정 내용 저장", use_container_width=True, key=f"save_{selected_content}"):
                 file_path.write_text(edited_text, encoding="utf-8")
-                st.success("저장했습니다. 영상은 다시 만들면 수정 내용이 반영됩니다.")
+                if content_menu[selected_content] in {"04-youtube-slides.md", "05-vrew-script.txt"}:
+                    clear_rendered_video_outputs(package_dir)
+                    st.session_state.pop("mp4_video_path", None)
+                    st.session_state.pop("video_package_zip", None)
+                st.success("저장했습니다. 영상 대본을 수정했다면 MP4를 다시 만들면 반영됩니다.")
         with col_hint:
             if selected_content in {"유튜브 대본", "Vrew 대본"}:
-                st.info("대본을 고친 뒤에는 영상 제작 패키지나 MP4를 다시 만들어야 반영됩니다.")
+                st.info("대본을 고친 뒤에는 영상 제작 패키지와 MP4를 다시 만들어야 반영됩니다.")
             else:
                 st.info("여기서 바로 고치고 저장할 수 있습니다.")
         if selected_content == "블로그 글":
             st.divider()
-            st.caption("블로그 글을 충분히 보강한 뒤 아래 버튼을 누르면 티스토리·쓰레드·유튜브·Vrew·PPTX를 다시 만듭니다.")
+            st.caption("블로그 글을 보강한 뒤 아래 버튼을 누르면 티스토리, 쓰레드, 유튜브, Vrew, PPTX를 다시 만듭니다.")
             if st.button("블로그 글 기준으로 전체 다시 만들기", use_container_width=True):
                 file_path.write_text(edited_text, encoding="utf-8")
                 derivatives = create_derivative_content_from_blog(
@@ -1126,14 +1151,14 @@ def show_content_viewer(settings: dict) -> None:
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 use_container_width=True,
             )
-            st.caption("대본의 슬라이드 1~6 순서대로 PPTX 6장이 생성됩니다.")
+            st.caption("유튜브 슬라이드 1~6 순서대로 PPTX가 생성됩니다.")
         else:
-            st.info("아직 PPTX 파일이 없습니다. 새로 '지금 테스트 실행'을 누르면 생성됩니다.")
+            st.info("아직 PPTX 파일이 없습니다. 지금 테스트 실행을 누르면 생성됩니다.")
     elif selected_content == "영상 제작":
         st.markdown("### 영상 제작 패키지")
-        st.caption("PPTX, Vrew 대본, 업로드 제목/설명/해시태그, 썸네일 문구, 제작 체크리스트를 ZIP으로 묶습니다.")
+        st.caption("PPTX, Vrew 대본, 업로드 정보, 썸네일 문구, 제작 체크리스트를 ZIP으로 묶습니다.")
         st.markdown("#### 슬라이드별 이미지/영상 넣기")
-        st.caption("사진을 넣으면 글자 슬라이드의 배경으로 쓰고, MP4 영상을 넣으면 해당 슬라이드 구간의 배경 영상으로 씁니다.")
+        st.caption("사진은 슬라이드 배경으로 쓰고, MP4 영상은 해당 슬라이드 구간 배경 영상으로 씁니다.")
         asset_dir = get_slide_asset_dir(package_dir)
         if st.button("슬라이드 이미지 자동 채우기", use_container_width=True):
             try:
@@ -1214,14 +1239,13 @@ def show_content_viewer(settings: dict) -> None:
                 use_container_width=True,
             )
 
-
 def show_result(result: subprocess.CompletedProcess[str]) -> None:
     if result.returncode == 0:
-        st.success("완료되었습니다.")
+        st.success("?꾨즺?섏뿀?듬땲??")
         if result.stdout.strip():
             st.code(result.stdout.strip())
     else:
-        st.error("실행 중 오류가 발생했습니다.")
+        st.error("?ㅽ뻾 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.")
         message = result.stderr.strip() or result.stdout.strip()
         if message:
             st.code(message)
@@ -1235,19 +1259,21 @@ def run_news_now(settings: dict) -> None:
     try:
         result = run_mailer(settings=settings)
         if result.get("sent", 0):
-            st.success(f"{result['recipient']} 주소로 뉴스 {result['sent']}개를 보냈습니다.")
+            st.success(f"{result['recipient']} 二쇱냼濡??댁뒪 {result['sent']}媛쒕? 蹂대깉?듬땲??")
             content_package = result.get("content_package")
             if content_package:
-                selected_text = f"{result.get('selected_index')}번째 뉴스"
+                selected_text = f"{result.get('selected_index')}踰덉㎏ ?댁뒪"
                 if result.get("auto_selected"):
-                    selected_text += "를 본문 기준으로 자동 선택"
-                st.success(f"{selected_text}로 블로그·티스토리·쓰레드·유튜브·PPTX·Vrew 콘텐츠 패키지도 만들었습니다.")
+                    selected_text += "瑜?蹂몃Ц 湲곗??쇰줈 ?먮룞 ?좏깮"
+                st.success(f"{selected_text}濡?釉붾줈洹맞룻떚?ㅽ넗由?룹벐?덈뱶쨌?좏뒠釉뙿텾PTX쨌Vrew 肄섑뀗痢??⑦궎吏??留뚮뱾?덉뒿?덈떎.")
+                if result.get("content_message"):
+                    st.info(result["content_message"])
             elif result.get("content_message"):
                 st.warning(result["content_message"])
         else:
-            st.warning(result.get("message", "보낼 뉴스가 없습니다."))
+            st.warning(result.get("message", "蹂대궪 ?댁뒪媛 ?놁뒿?덈떎."))
     except Exception as exc:
-        st.error(f"실행 중 오류가 발생했습니다: {exc}")
+        st.error(f"?ㅽ뻾 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎: {exc}")
 
 
 def card(title: str, value: str, caption: str = "", accent: str = "cyan") -> None:
@@ -1291,8 +1317,8 @@ def require_dashboard_login() -> None:
 
     password = get_dashboard_password()
     if not password:
-        st.error("관리자 비밀번호가 설정되지 않았습니다.")
-        st.info("Streamlit Secrets 또는 로컬 .env에 DASHBOARD_PASSWORD를 추가해 주세요.")
+        st.error("愿由ъ옄 鍮꾨?踰덊샇媛 ?ㅼ젙?섏? ?딆븯?듬땲??")
+        st.info("Streamlit Secrets ?먮뒗 濡쒖뺄 .env??DASHBOARD_PASSWORD瑜?異붽???二쇱꽭??")
         st.stop()
 
     if st.session_state.get("dashboard_authenticated"):
@@ -1301,8 +1327,8 @@ def require_dashboard_login() -> None:
     st.markdown(
         """
         <div style="max-width:420px;margin:14vh auto 0;padding:28px;border:1px solid #263248;border-radius:8px;background:#111827;">
-            <h2 style="margin-top:0;color:white;">관리자 로그인</h2>
-            <p style="color:#8ea0bd;margin-bottom:18px;">비밀번호를 입력해야 뉴스 자동화 대시보드를 사용할 수 있습니다.</p>
+            <h2 style="margin-top:0;color:white;">愿由ъ옄 濡쒓렇??/h2>
+            <p style="color:#8ea0bd;margin-bottom:18px;">鍮꾨?踰덊샇瑜??낅젰?댁빞 ?댁뒪 ?먮룞????쒕낫?쒕? ?ъ슜?????덉뒿?덈떎.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1317,7 +1343,7 @@ def require_dashboard_login() -> None:
     st.stop()
 
 
-st.set_page_config(page_title="현탑부동산 뉴스앱", page_icon="HN", layout="wide")
+st.set_page_config(page_title="현탑부동산 뉴스 자동화", page_icon="HN", layout="wide")
 
 st.markdown(
     """
@@ -1584,12 +1610,12 @@ st.markdown(
     f"""
     <div class="topbar">
         <div>
-            <div class="page-title">현탑부동산 뉴스 자동화 대시보드..</div>
-            <div class="page-subtitle">{now_text} KST · 메일 발송, 콘텐츠 패키지, 스케줄러 관리</div>
+            <div class="page-title">?꾪깙遺?숈궛 ?댁뒪 ?먮룞????쒕낫??.</div>
+            <div class="page-subtitle">{now_text} KST 쨌 硫붿씪 諛쒖넚, 肄섑뀗痢??⑦궎吏, ?ㅼ?以꾨윭 愿由?/div>
         </div>
         <div class="status-row">
             <span class="status-pill">LIVE</span>
-            <span>settings.json 저장</span>
+            <span>settings.json ???/span>
         </div>
     </div>
     """,
@@ -1608,8 +1634,8 @@ if menu == "대시보드":
         card("수신 채널", recipient, "이메일 발송", "green")
     with col4:
         blog_status = "ON" if settings["blog_enabled"] else "OFF"
-        pick_label = "본문 많은 뉴스 자동 선택" if int(settings.get("blog_pick_index", 0)) == 0 else f"{settings['blog_pick_index']}번째 뉴스로 4종 생성"
-        card("콘텐츠 패키지", blog_status, pick_label.replace("4종", "6종").replace("5종", "6종"), "amber")
+        pick_label = "본문 많은 뉴스 자동 선택" if int(settings.get("blog_pick_index", 0)) == 0 else f"{settings['blog_pick_index']}번째 뉴스로 생성"
+        card("콘텐츠 패키지", blog_status, pick_label, "amber")
 
     st.markdown('<div class="section-title">Quick Actions</div>', unsafe_allow_html=True)
     action1, action2, action3 = st.columns([1, 1, 2])
@@ -1638,7 +1664,6 @@ if menu == "대시보드":
 
     st.markdown('<div class="section-title">Saved Content</div>', unsafe_allow_html=True)
     show_content_viewer(settings)
-
 elif menu == "설정":
     st.markdown('<div class="section-title">Configuration</div>', unsafe_allow_html=True)
     with st.form("settings_form"):
@@ -1678,7 +1703,12 @@ elif menu == "설정":
                 value=int(settings.get("content_candidate_limit", 10)),
                 disabled=(not blog_enabled) or (not auto_pick),
             )
-            st.caption("자동 선택을 켜면 뉴스 목록 중 본문/요약이 가장 많이 확보된 기사로 블로그, 티스토리, 쓰레드, 유튜브, PPTX, Vrew 콘텐츠를 만듭니다.")
+            st.caption("자동 선택을 켜면 뉴스 목록 중 본문이나 요약이 가장 많은 기사를 콘텐츠 제작 기준으로 고릅니다.")
+            low_cost_mode = st.toggle(
+                "Gemini 비용 절약 모드",
+                value=bool(settings.get("low_cost_mode", True)),
+                disabled=not blog_enabled,
+            )
 
         with tab_guard:
             retry_count = st.number_input("실패 시 재시도 횟수", min_value=0, max_value=10, value=int(settings["retry_count"]))
@@ -1699,6 +1729,7 @@ elif menu == "설정":
             "blog_pick_index": 0 if auto_pick else int(blog_pick_index),
             "blog_draft_dir": blog_draft_dir.strip() or "blog_drafts",
             "content_candidate_limit": int(content_candidate_limit),
+            "low_cost_mode": bool(low_cost_mode),
             "retry_count": int(retry_count),
             "retry_delay_seconds": int(retry_delay_seconds),
             "request_timeout_seconds": int(request_timeout_seconds),
@@ -1714,6 +1745,5 @@ elif menu == "실행 기록":
         f'<div class="log-box">{html.escape(chr(10).join(read_recent_logs(30)))}</div>',
         unsafe_allow_html=True,
     )
-
-    with st.expander("현재 JSON 설정 보기"):
+    with st.expander("?꾩옱 JSON ?ㅼ젙 蹂닿린"):
         st.json(settings)
