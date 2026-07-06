@@ -222,7 +222,7 @@ def guess_image_query(slide: dict[str, str], fallback: str) -> str:
         for part in [slide.get("screen", ""), slide.get("title", ""), fallback]
         if part and part.strip()
     )
-    text = re.sub(r"[#*_`\"'?쒋앪섃?)\[\]{}<>|]", " ", text)
+    text = re.sub(r"[#*_`\"'()\[\]{}<>|]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:80] or fallback or "news"
 

@@ -341,14 +341,14 @@ def create_gemini_content(item: NewsItem, article_context: str, use_grounding: b
     LAST_GEMINI_ERROR = ""
     api_key = get_secret("GEMINI_API_KEY")
     if not api_key:
-        LAST_GEMINI_ERROR = "GEMINI_API_KEY媛 ?놁뒿?덈떎."
+        LAST_GEMINI_ERROR = "GEMINI_API_KEY가 없습니다."
         return None
 
     try:
         from google import genai
         from google.genai import types
     except Exception as exc:
-        LAST_GEMINI_ERROR = f"Gemini ?⑦궎吏瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲?? {exc}"
+        LAST_GEMINI_ERROR = f"Gemini 패키지를 불러오지 못했습니다: {exc}"
         return None
 
     model = get_secret("GEMINI_MODEL") or "gemini-2.5-pro"
@@ -481,11 +481,11 @@ Collected article context:
 def create_derivative_content_from_blog(
     blog_post: str,
     title: str = "",
-    source: str = "吏곸젒 ?몄쭛",
+    source: str = "직접 작성",
     link: str = "",
 ) -> dict[str, str]:
-    title = title.strip() or extract_title_from_text(blog_post, "吏곸젒 ?묒꽦??釉붾줈洹?湲")
-    source = source.strip() or "吏곸젒 ?몄쭛"
+    title = title.strip() or extract_title_from_text(blog_post, "직접 작성한 블로그 글")
+    source = source.strip() or "직접 작성"
     link = link.strip()
     api_key = get_secret("GEMINI_API_KEY")
     data: dict[str, str] | None = None
@@ -1415,15 +1415,30 @@ def send_email(message: EmailMessage, sender: str, app_password: str) -> None:
         smtp.send_message(message)
 
 
+def looks_broken_text(text: str) -> bool:
+    if not text:
+        return False
+    markers = ["?댁", "?쒕", "?먮", "?좏", "?꾨", "異", "諛", "遺", "寃", "蹂", "吏", "�"]
+    return any(marker in text for marker in markers)
+
+
 def _clean_news_title(title: str) -> str:
     title = re.sub(r"\s+", " ", title or "").strip()
     title = re.sub(r"\s*-\s*[^-]{2,25}$", "", title).strip()
-    return title or "?ㅻ뒛???댁뒪"
+    return title or "오늘의 뉴스"
 
 
 def _article_core(title: str, context: str) -> str:
-    text = " ".join((context or "").split())
-    if len(text) > 120 and "蹂몃Ц" not in text[:80]:
+    cleaned_lines = []
+    for raw_line in (context or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        line = re.sub(r"^#{1,6}\s*", "", line)
+        line = re.sub(r"^[-*]\s*", "", line)
+        cleaned_lines.append(line)
+    text = " ".join(cleaned_lines)
+    if len(text) > 120 and not looks_broken_text(text[:120]):
         return text[:900]
     return _clean_news_title(title)
 
@@ -1431,10 +1446,10 @@ def _article_core(title: str, context: str) -> str:
 def _make_reader_questions(title: str) -> list[str]:
     clean = _clean_news_title(title)
     return [
-        f"{clean}???ㅼ젣 ?뺤콉?대굹 ?쒖옣 ?먮쫫?쇰줈 ?댁뼱吏?媛?μ꽦? ?쇰쭏???섎뒗媛?",
-        "吏곸젒 ?곹뼢??諛쏅뒗 ?щ엺? ?꾧뎄?닿퀬, 遺?댁? ?대뵒濡??대룞?섎뒗媛?",
-        "?대쾲 諛쒗몴 ?댄썑 ?뺣?, 湲곗뾽, ?쒖옣???ㅼ쓬???뺤씤??吏?쒕뒗 臾댁뾿?멸??",
-        "???앺솢鍮? ?ъ옄 ?먮떒, ?ъ뾽 怨꾪쉷???곌껐?섎뒗 遺遺꾩? ?녿뒗媛?",
+        f"{clean} 이슈가 실제 정책이나 시장 흐름으로 이어질 가능성은 어느 정도인가?",
+        "직접 영향을 받는 사람은 누구이고, 부담은 어디로 이동하는가?",
+        "이번 발표 이후 정부, 기업, 시장이 다음에 확인할 지점은 무엇인가?",
+        "내 생활비, 자산 판단, 사업 계획과 연결되는 부분은 없는가?",
     ]
 
 
@@ -1448,7 +1463,7 @@ def parse_slide_blocks(slide_script: str) -> list[dict[str, str]]:
         if not line:
             continue
 
-        if line.startswith("##") and ("?щ씪?대뱶" in line or "Slide" in line):
+        if line.startswith("##") and ("슬라이드" in line or "Slide" in line):
             if current:
                 blocks.append(current)
             current = {"title": line.lstrip("# ").strip(), "screen": "", "narration": ""}
@@ -1532,8 +1547,8 @@ def ensure_six_slide_blocks(slide_script: str, item: NewsItem, article_context: 
         source = parsed[index] if index < len(parsed) else {}
         default = defaults[index]
         title = source.get("title") or default["title"]
-        if "?щ씪?대뱶" not in title:
-            title = f"?щ씪?대뱶 {index + 1}. {title}"
+        if "슬라이드" not in title:
+            title = f"슬라이드 {index + 1}. {title}"
         blocks.append(
             {
                 "title": title,
@@ -1585,42 +1600,43 @@ def format_vrew_script(blocks: list[dict[str, str]], source: str) -> str:
 def _build_tistory_post_from_blog(blog_post: str, title: str, source: str, link: str) -> str:
     clean_title = _clean_news_title(title)
     body = re.sub(r"^# .*$", "", blog_post or "", count=1, flags=re.MULTILINE).strip()
-    body = re.sub(r"異쒖쿂:.*", "", body).strip()
-    body = re.sub(r"?먮Ц:.*", "", body).strip()
+    body = re.sub(r"출처:.*", "", body).strip()
+    body = re.sub(r"원문:.*", "", body).strip()
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
-    intro = paragraphs[0] if paragraphs else f"{clean_title} ?댁뒋瑜?5060 ?낆옄 愿?먯뿉???뺣━?⑸땲??"
+    intro = paragraphs[0] if paragraphs else f"{clean_title} 이슈를 5060 독자 관점에서 정리합니다."
     middle = "\n\n".join(paragraphs[1:5]) if len(paragraphs) > 1 else body
     questions = "\n".join(f"- {q}" for q in _make_reader_questions(title))
-    tags = "#?댁뒪?댁꽕 #寃쎌젣?댁뒪 #?뺤콉?댁뒋 #遺?숈궛?댁뒪 #5060?뺣낫 #?앺솢寃쎌젣"
+    tags = "#뉴스해설 #경제뉴스 #정책이슈 #부동산뉴스 #5060정보 #생활경제"
     return format_tistory_post(
-        f"""# {clean_title}, 吏湲??뺤씤?댁빞 ???먮쫫
+        f"""# {clean_title}, 지금 확인해야 할 흐름
 
 {intro}
 
-## 1. ?쒕ぉ??留먰븯???듭떖 蹂??
-?대쾲 ?댁뒪???⑥닚???ш굔 ?꾨떖蹂대떎 ?욎쑝濡쒖쓽 諛⑺뼢???쎈뒗 ???섎?媛 ?덉뒿?덈떎. ?쒕ぉ ???쒗쁽??蹂대㈃ ?쒖옣怨??뺤콉, ?щ엺?ㅼ쓽 ?좏깮???대뵒濡??吏곸씠?붿? ?⑥꽌媛 ?ㅼ뼱 ?덉뒿?덈떎.
+## 1. 제목이 말하는 변화
+
+이번 뉴스는 단순한 사건 전달보다 앞으로의 방향을 읽는 데 의미가 있습니다. 제목 속 표현을 보면 시장과 정책, 사람들의 선택이 어디로 움직이는지 힌트가 들어 있습니다.
 
 {middle}
 
-## 2. ??먭쾶 以묒슂???댁쑀
+## 2. 독자가 주목해야 하는 이유
 
-?대윴 ?댁뒪??泥섏쓬?먮뒗 硫由??덈뒗 ?댁빞湲곗쿂??蹂댁씠吏留? ?쒓컙??吏?섎㈃ ?앺솢鍮꾩? ?멸툑, ?먯궛 媛寃? ?ъ옄 ?щ━, ?ъ뾽 ?섍꼍?쇰줈 ?댁뼱吏????덉뒿?덈떎.
+이런 뉴스는 처음에는 멀리 있는 이야기처럼 보이지만 시간이 지나면 생활비, 세금, 자산 가격, 투자 심리, 사업 환경으로 이어질 수 있습니다.
 
-洹몃옒??以묒슂??寃껋? ?꾧? ?댁씡??蹂닿퀬, ?꾧? 遺?댁쓣 吏硫? 洹?遺?댁씠 ?대뒓 ?쒖젏???꾩떎?붾릺?붿? ?뺤씤?섎뒗 ?쇱엯?덈떎.
+그래서 중요한 것은 지금 무엇이 바뀌고 있고, 그 변화가 어느 시점에 체감될지 확인하는 일입니다.
 
-## 3. 諛붾줈 ?뺤씤??吏덈Ц
+## 3. 바로 확인할 질문
 
 {questions}
 
-## 4. ?ㅻ뒛???뺣━
+## 4. 오늘의 정리
 
-吏湲??꾩슂???쒕룄??鍮좊Ⅸ 寃곕줎???꾨땲??李⑤텇???뺤씤?낅땲?? ?먮Ц怨??꾩냽 蹂대룄瑜??④퍡 蹂대㈃?????댁뒋媛 ?쇱떆???뚯쓬?몄?, ?ㅼ젣 蹂?붿쓽 ?쒖옉?몄? 援щ텇?댁빞 ?⑸땲??
+지금 필요한 태도는 빠른 결론보다 차분한 확인입니다. 원문과 후속 보도를 함께 보면 이 이슈가 일시적인 소식인지, 실제 변화의 시작인지 더 분명하게 구분할 수 있습니다.
 
-異쒖쿂: {source}
+출처: {source}
 
-?먮Ц: {link}
+원문: {link}
 
-?쒓렇: {tags}"""
+태그: {tags}"""
     )[:4500]
 
 
@@ -1628,9 +1644,9 @@ def _build_thread_post_from_blog(blog_post: str, title: str) -> str:
     clean_title = _clean_news_title(title)
     snippet = " ".join(re.sub(r"#+\s*", "", blog_post or "").split())[:180]
     text = (
-        f"{clean_title} ?댁뒪???쒕ぉ留?蹂닿퀬 ?섍린湲곗뿏 ?꾧튉?듬땲?? "
+        f"{clean_title} 뉴스는 제목만 보고 넘기기엔 아쉽습니다. "
         f"{snippet} "
-        "?듭떖? ?ш굔蹂대떎 ?ㅼ쓬 蹂?붿엯?덈떎. ?꾧? 遺?댁쓣 吏怨? ?대뼡 ?뺤콉怨??쒖옣 諛섏쓳???댁뼱吏덉? ?뺤씤?댁빞 ?⑸땲??"
+        "핵심은 사건 자체보다 다음 변화입니다. 어떤 부담이 생기고, 어떤 정책과 시장 반응으로 이어질지 확인해야 합니다."
     )
     return ensure_thread_length(text, clean_title, blog_post)
 
@@ -1639,41 +1655,41 @@ def create_local_content_package_data(item: NewsItem, article_context: str, toda
     title = _clean_news_title(item.title)
     core = _article_core(item.title, article_context)
     questions = "\n".join(f"- {q}" for q in _make_reader_questions(item.title))
-    blog_post = f"""# {title}??洹몃깷 ?섍린硫????섎뒗 ?댁쑀
+    blog_post = f"""# {title}을 그냥 넘기면 안 되는 이유
 
-?댁뒪瑜?蹂???媛???꾩돩???쒓컙? ?쒕ぉ留?蹂닿퀬 吏?섏튇 ?? 硫곗튌 ?ㅼ뿉??洹??쇱씠 ???앺솢怨??곌껐?섏뼱 ?덉뿀?ㅻ뒗 ?ъ떎??源⑤떕???뚯엯?덈떎.
+뉴스를 볼 때 가장 아쉬운 순간은 제목만 보고 지나친 뒤, 며칠 뒤에야 그 일이 내 생활과 연결되어 있었다는 사실을 깨닫는 때입니다.
 
-?대쾲???덉뿬寃⑤낵 ?뚯떇? "{title}"?낅땲?? 異쒖쿂??{item.source}?낅땲?? ???댁뒪???⑥닚???ш굔 ?꾨떖蹂대떎 ?욎쑝濡쒖쓽 ?뺤콉, ?쒖옣, ?앺솢 蹂?붽? ?대뵒濡??吏곸씪吏 ?쎈뒗 ???섎?媛 ?덉뒿?덈떎.
+이번에 눈여겨볼 소식은 "{title}"입니다. 출처는 {item.source}입니다. 이 뉴스는 단순한 사건 소개가 아니라 앞으로의 정책, 시장, 생활비, 자산 판단과 연결될 수 있는 흐름을 담고 있습니다.
 
-## 1. ?쒕ぉ ?ㅼ뿉 ?⑥뼱 ?덈뒗 ?먮쫫
+## 1. 제목 뒤에 숨어 있는 흐름
 
 {core}
 
-?댁뒪??媛묒옄湲??앷린??寃껋쿂??蹂댁씠吏留??ㅼ젣濡쒕뒗 ?댁쟾遺???볦씤 蹂?붽? ?쒕㈃?쇰줈 ?щ씪?ㅻ뒗 寃쎌슦媛 留롮뒿?덈떎. 洹몃옒???쒕ぉ留?蹂닿퀬 醫뗫떎, ?섏걯?ㅻ? ?먮떒?섍린蹂대떎 諛곌꼍怨??꾩냽 ?吏곸엫???④퍡 遊먯빞 ?⑸땲??
+뉴스는 갑자기 생기는 것처럼 보이지만, 실제로는 이전부터 쌓여 온 변화가 어느 순간 표면으로 올라오는 경우가 많습니다. 그래서 제목만 보고 좋다, 나쁘다를 판단하기보다 배경과 후속 움직임을 함께 봐야 합니다.
 
-## 2. ??吏湲?以묒슂?좉퉴
+## 2. 왜 지금 주목해야 할까
 
-?대윴 ?댁뒋???쒓컙??吏?섎㈃???앺솢鍮? ?멸툑, ?먯궛 媛寃? ?ъ옄 ?щ━, ?ъ뾽 ?섍꼍?쇰줈 ?곌껐?????덉뒿?덈떎. ?뱁엳 ?뺤콉怨??쒖옣???④퍡 ?吏곸씠???댁뒪?쇰㈃ 泥섏쓬?먮뒗 ?묎쾶 蹂댁뿬???섏쨷?먮뒗 泥닿컧 蹂?붽? 而ㅼ쭏 ???덉뒿?덈떎.
+이런 이슈는 시간이 지나면 생활비, 세금, 자산 가격, 투자 심리, 사업 환경으로 이어질 수 있습니다. 특히 정책과 시장이 함께 움직이는 뉴스라면 처음에는 작게 보여도 나중에는 체감 변화가 커질 수 있습니다.
 
-## 3. ??먭쾶 ?곹뼢??以????덈뒗 遺遺?
-泥レ㎏, 鍮꾩슜 援ъ“媛 諛붾????덉뒿?덈떎. ?멸툑?대굹 洹쒖젣, 怨듦툒怨??섏슂??蹂?붾뒗 寃곌뎅 媛쒖씤??吏異쒓낵 ?먯궛 ?먮떒???곹뼢??以띾땲??
+## 3. 독자에게 영향을 줄 수 있는 부분
 
-?섏㎏, ?쒖옣 ?щ━媛 ?붾뱾由????덉뒿?덈떎. ?ъ옄?먯? ?뚮퉬?먭? 媛숈? ?댁뒪瑜??ㅻⅤ寃?諛쏆븘?ㅼ씠硫?媛寃⑷낵 嫄곕옒?됱씠 癒쇱? 諛섏쓳?????덉뒿?덈떎.
+첫째, 비용 구조가 바뀔 수 있습니다. 세금, 규제, 공급과 수요의 변화는 결국 개인의 지출과 자산 판단에 영향을 줍니다.
 
-?뗭㎏, ?꾩냽 ?뺤콉????以묒슂?댁쭏 ???덉뒿?덈떎. ?댁뒪??泥?諛쒗몴蹂대떎 ?댄썑 ?몃??? ?쒗뻾 ?쒓린, ?덉쇅 議곌굔???ㅼ젣 ?곹뼢??寃곗젙?섎뒗 寃쎌슦媛 留롮뒿?덈떎.
+둘째, 시장 심리가 흔들릴 수 있습니다. 투자자와 소비자가 같은 뉴스를 다르게 받아들이면 가격과 거래량이 먼저 움직일 수 있습니다.
 
-## 4. 吏湲?諛붾줈 ?뺤씤??吏덈Ц
+셋째, 후속 정책이 더 중요해질 수 있습니다. 첫 발표보다 이후의 보완책, 시행 시기, 예외 조건이 실제 영향을 결정하는 경우가 많습니다.
+
+## 4. 지금 바로 확인할 질문
 
 {questions}
 
-## 5. 留덈Т由?
-?대쾲 ?댁뒪???ㅻ뒛 ?섎（ ?뚮퉬?섍퀬 ?앸궪 ?뚯떇???꾨땺 ???덉뒿?덈떎. ?먮Ц怨??꾩냽 蹂대룄瑜??④퍡 蹂대㈃????蹂?붽? ???앺솢怨??먯궛 ?먮떒???대뼡 ?좏샇瑜?二쇰뒗吏 李⑤텇???뺤씤??蹂댁떆湲?諛붾엻?덈떎.
+## 5. 마무리
 
-?ㅼ쓬?먮뒗 ???댁뒋媛 ?ㅼ젣 ?쒖옣 諛섏쓳?쇰줈 ?댁뼱吏?붿?, 愿???뺤콉怨?湲곗뾽 ??묒씠 ?대뼸寃??섏삤?붿? ?④퍡 ?먭???蹂닿쿋?듬땲??
+이번 뉴스는 오늘 하루 소비하고 끝낼 소식이 아닐 수 있습니다. 원문과 후속 보도를 함께 보면서 변화가 내 생활과 자산 판단에 어떤 신호를 주는지 차분히 확인해 볼 필요가 있습니다.
 
-異쒖쿂: {item.source}
-?먮Ц: {item.link}
-?뺤씤?? {today}"""
+출처: {item.source}
+원문: {item.link}
+확인일: {today}"""
     tistory_post = _build_tistory_post_from_blog(blog_post, title, item.source, item.link)
     thread_post = _build_thread_post_from_blog(blog_post, title)
     slide_blocks = fallback_slide_blocks(item, article_context)
@@ -1706,40 +1722,41 @@ def create_derivative_content_from_blog(
 
             model = get_secret("GEMINI_MODEL") or "gemini-2.5-pro"
             prompt = f"""
-?꾨옒 釉붾줈洹?湲??諛뷀깢?쇰줈 4媛?肄섑뀗痢좊? ?덈줈 ?묒꽦?섎씪.
-諛섎뱶???쒓뎅??JSON 媛앹껜 ?섎굹留?諛섑솚?섎씪.
-?ㅻ뒗 tistory_post, thread_post, slide_script, vrew_script留??ъ슜?섎씪.
+아래 블로그 글을 바탕으로 4가지 콘텐츠를 새로 작성해 주세요.
+반드시 한국어 JSON 객체 하나만 반환하세요.
+키는 tistory_post, thread_post, slide_script, vrew_script만 사용하세요.
 
-怨듯넻 ?먯튃:
-- ?먮Ц 釉붾줈洹?湲???댁뒪 ?듭떖 ?⑥뼱, ?몃Ъ, 湲곌?, ?뺤콉紐? ?쒖옣 ?곹뼢??諛섎뱶??諛섏쁺?쒕떎.
-- ?뺤씤?섏? ?딆? ?レ옄, 諛쒖뼵, ?쇱젙? ?덈줈 留뚮뱾吏 ?딅뒗??
-- ?쇰컲濡좊쭔 諛섎났?섏? 留먭퀬, ?쒕ぉ怨?蹂몃Ц???덈뒗 援ъ껜 ?댁뒋瑜?以묒떖?쇰줈 ?대떎.
+공통 원칙:
+- 원문 블로그 글의 구체적인 뉴스 주제, 인물, 기관, 정책명, 시장 영향을 반영하세요.
+- 확인되지 않은 숫자, 발언, 일정은 새로 만들지 마세요.
+- 일반론만 반복하지 말고 제목과 본문에 있는 구체 이슈를 중심으로 쓰세요.
 
 tistory_post:
-- 釉붾줈洹?湲怨?臾몄옣 援ъ“媛 媛숈쑝硫????쒕떎. ?곗뒪?좊━????湲泥섎읆 媛곸깋?쒕떎.
-- 2500~3500?? 吏㏃? 臾몃떒, H2/H3 ?뚯젣紐? 紐⑸줉, 留덈Т由? ?쒓렇 5~8媛??ы븿.
-- 臾몃떒留덈떎 鍮?以꾩쓣 ?ｊ퀬, 湲?臾몄옣??怨꾩냽 ?댁뼱 ?곗? ?딅뒗??
+- 블로그 글을 그대로 복사하지 말고 티스토리 업로드용으로 각색하세요.
+- 2500~3500자 분량, 짧은 문단, H2/H3 소제목, 목록, 마무리, 관련 태그 5~8개를 포함하세요.
+- 문단마다 빈 줄을 넣고 글을 계속 이어 쓰지 마세요.
 
 thread_post:
-- 280~330??
-- ?댁뒪??援ъ껜 二쇱젣? ??吏湲?遊먯빞 ?섎뒗吏瑜??ы븿?쒕떎.
+- 280~330자 정도로 쓰세요.
+- 뉴스의 구체 주제와 지금 봐야 하는 이유, 확인할 포인트를 담으세요.
 
 slide_script:
-- ?뺥솗??6媛??щ씪?대뱶.
-- "## ?щ씪?대뱶 1. ..."遺??"## ?щ씪?대뱶 6. ..."源뚯? ?쒖꽌?濡??묒꽦?쒕떎.
-- 媛??щ씪?대뱶??"?붾㈃ 臾멸뎄:"? "?대젅?댁뀡:"???ы븿?쒕떎.
-- ?щ씪?대뱶 1? ?댁뒪 ?쒕ぉ???쒕늿??蹂댁뿬二쇰뒗 ?쒕ぉ ?щ씪?대뱶濡?留뚮뱺??
-- 紐⑤뱺 ?щ씪?대뱶???댁뒪???ㅼ젣 二쇱젣?닿? ?쒕윭?섏빞 ?쒕떎.
+- 정확히 6개 슬라이드로 쓰세요.
+- "## 슬라이드 1. ..."부터 "## 슬라이드 6. ..."까지 순서대로 쓰세요.
+- 각 슬라이드에는 "화면 문구:"와 "내레이션:"을 포함하세요.
+- 슬라이드 1은 뉴스 제목을 한눈에 보여주는 제목 슬라이드로 만드세요.
+- 모든 슬라이드에 실제 뉴스 주제가 드러나야 합니다.
 
 vrew_script:
-- slide_script? 媛숈? 6媛??λ㈃ ?쒖꽌.
-- 留먮줈 ?쎄린 ?먯뿰?ㅻ윭???대젅?댁뀡 以묒떖?쇰줈 ?묒꽦?쒕떎.
+- slide_script와 같은 6개 장면 순서로 쓰세요.
+- 말로 읽기 자연스러운 내레이션 중심으로 쓰세요.
+- 내레이션에서 "주요내용", "핵심메시지"라는 단어는 쓰지 마세요.
 
-?쒕ぉ: {title}
-異쒖쿂: {source}
-?먮Ц: {link}
+제목: {title}
+출처: {source}
+원문: {link}
 
-釉붾줈洹?湲:
+블로그 글:
 {blog_post[:7000]}
 """
             client = genai.Client(api_key=api_key)
@@ -1784,70 +1801,71 @@ def create_gemini_content(item: NewsItem, article_context: str, use_grounding: b
     LAST_GEMINI_ERROR = ""
     api_key = get_secret("GEMINI_API_KEY")
     if not api_key:
-        LAST_GEMINI_ERROR = "GEMINI_API_KEY媛 ?놁뒿?덈떎."
+        LAST_GEMINI_ERROR = "GEMINI_API_KEY가 없습니다."
         return None
 
     try:
         from google import genai
         from google.genai import types
     except Exception as exc:
-        LAST_GEMINI_ERROR = f"Gemini ?⑦궎吏瑜?遺덈윭?ㅼ? 紐삵뻽?듬땲?? {exc}"
+        LAST_GEMINI_ERROR = f"Gemini 패키지를 불러오지 못했습니다: {exc}"
         return None
 
     model = get_secret("GEMINI_MODEL") or "gemini-2.5-pro"
     title = _clean_news_title(item.title)
     prompt = f"""
-?뱀떊? 5060 ?낆옄瑜??꾪븳 ?쒓뎅???댁뒪 ?댁꽕 釉붾줈洹??묎???
-?꾨옒 ?댁뒪 ?뺣낫瑜?諛뷀깢?쇰줈 肄섑뀗痢?5媛쒕? ?묒꽦?섎씪.
-諛섎뱶??JSON 媛앹껜 ?섎굹留?諛섑솚?섎씪.
-?ㅻ뒗 blog_post, tistory_post, thread_post, slide_script, vrew_script留??ъ슜?섎씪.
+당신은 5060 독자를 위한 한국어 뉴스 해설 블로그 작가입니다.
+아래 뉴스 정보를 바탕으로 콘텐츠 5개를 작성하세요.
+반드시 JSON 객체 하나만 반환하세요.
+키는 blog_post, tistory_post, thread_post, slide_script, vrew_script만 사용하세요.
 
-?덈? 洹쒖튃:
-- 湲곗궗 ?쒕ぉ, 異쒖쿂, ?섏쭛 蹂몃Ц???덈뒗 援ъ껜 二쇱젣?대? 諛섎뱶??諛섏쁺?쒕떎.
-- 湲곗궗 蹂몃Ц??遺議깊빐??"蹂몃Ц??紐?媛?몄솕??, "?뺣낫媛 遺議깊븯???쇨퀬 ?낆옄?먭쾶 留먰븯吏 ?딅뒗??
-- ?뺤씤?섏? ?딆? ?レ옄, 諛쒖뼵, ?쇱젙, 湲곗뾽紐낆? 留뚮뱾吏 ?딅뒗??
-- ?쇰컲濡좊쭔 諛섎났?섏? 留먭퀬, ???댁뒪 ?쒕ぉ???듭떖 ?곸젏??以묒떖?쇰줈 ?대떎.
-- 臾몃떒??湲멸쾶 遺숈뿬 ?곗? 留먭퀬, ?쎄린 ?쎄쾶 ?섎늿??
+전체 원칙:
+- 기사 제목, 출처, 수집 본문에 있는 구체 주제를 반드시 반영하세요.
+- 기사 본문이 부족해도 "본문을 못 가져왔다", "정보가 부족하다"라고 독자에게 말하지 마세요.
+- 확인되지 않은 숫자, 발언, 일정, 기업명은 만들지 마세요.
+- 일반론만 반복하지 말고, 이 뉴스 제목의 쟁점과 독자 관점의 해석을 중심으로 쓰세요.
+- 문단은 짧게 나누고 계속 이어 쓰지 마세요.
 
 blog_post:
-- 2500~3500??
-- ?곗뒪?좊━ 釉붾줈洹몄쿂???쏀엳???ㅼ쟾???댁뒪 ?댁꽕 湲.
-- ?쒕ぉ? ?꾪궧?뺤쑝濡??쒖옉?쒕떎.
-- 1~5踰?踰덊샇 ?뚯젣紐⑹쓣 ?ъ슜?쒕떎.
-- "??吏湲?以묒슂?쒓?", "??먭쾶 ?대뼡 ?곹뼢???덈뒗媛", "吏湲??뺤씤??寃?, "留덈Т由?媛 ?쒕윭?섏빞 ?쒕떎.
-- ?댁뒪 湲곗궗?대?濡??덇뎄 ?щ????ｌ? ?딅뒗??
+- 2500~3500자 분량.
+- 티스토리/네이버 블로그처럼 실전적인 뉴스 해설 글로 쓰세요.
+- 제목은 후킹형으로 시작하세요.
+- 번호가 있는 소제목 4~5개를 사용하세요.
+- "왜 지금 봐야 하는가", "독자에게 어떤 영향이 있는가", "지금 확인할 것", "마무리"가 드러나야 합니다.
+- 기사 내용이 아닌 허구 사례는 넣지 마세요.
 
 tistory_post:
-- blog_post瑜?蹂듭궗?섏? 留먭퀬, ?곗뒪?좊━ ?낅줈?쒖슜?쇰줈 ?덈∼寃?媛곸깋?쒕떎.
-- 2500~3500??
-- SEO???쒕ぉ, H2/H3 ?뚯젣紐? 吏㏃? 臾몃떒, 紐⑸줉, 留덈Т由? ?쒓렇 5~8媛??ы븿.
-- blog_post? 媛숈? 臾몄옣 ?쒖꽌??媛숈? ?쒗쁽??諛섎났?섏? ?딅뒗??
+- blog_post를 복사하지 말고 티스토리 업로드용으로 각색하세요.
+- 2500~3500자 분량.
+- SEO형 제목, H2/H3 소제목, 짧은 문단, 목록, 마무리, 태그 5~8개 포함.
+- blog_post와 같은 문장 순서와 같은 표현을 반복하지 마세요.
 
 thread_post:
-- 280~330??
-- ?댁뒪??援ъ껜 二쇱젣, ??吏湲?遊먯빞 ?섎뒗吏, ?낆옄媛 ?뺤씤???ъ씤?몃? ?ы븿?쒕떎.
+- 280~330자 정도.
+- 뉴스의 구체 주제, 지금 봐야 하는 이유, 독자가 확인할 포인트를 담으세요.
 
 slide_script:
-- ?뺥솗??6媛??щ씪?대뱶.
-- "## ?щ씪?대뱶 1. ..."遺??"## ?щ씪?대뱶 6. ..."源뚯? ?쒖꽌?濡??묒꽦?쒕떎.
-- 媛??щ씪?대뱶??"?붾㈃ 臾멸뎄:"? "?대젅?댁뀡:"???ы븿?쒕떎.
-- ?щ씪?대뱶 1? ?댁뒪 ?쒕ぉ????蹂댁씠???쒕ぉ ?щ씪?대뱶??
-- 紐⑤뱺 ?щ씪?대뱶?????댁뒪??援ъ껜 ?댁슜怨?二쇱젣?닿? ?ㅼ뼱媛???쒕떎.
+- 정확히 6개 슬라이드.
+- "## 슬라이드 1. ..."부터 "## 슬라이드 6. ..."까지 순서대로 작성.
+- 각 슬라이드에 "화면 문구:"와 "내레이션:" 포함.
+- 슬라이드 1은 뉴스 제목이 보이는 제목 슬라이드.
+- 모든 슬라이드에 이 뉴스의 구체 내용과 주제가 들어가야 합니다.
 
 vrew_script:
-- slide_script? 媛숈? ?쒖꽌??6媛??λ㈃.
-- 留먮줈 ?쎄린 ?먯뿰?ㅻ윭???대젅?댁뀡 ?蹂몄쑝濡??대떎.
+- slide_script와 같은 순서의 6개 장면.
+- 말로 읽기 자연스러운 내레이션 대본으로 작성.
+- "주요내용", "핵심메시지"라는 단어는 쓰지 마세요.
 
-?댁뒪 ?쒕ぉ:
+뉴스 제목:
 {title}
 
-異쒖쿂:
+출처:
 {item.source}
 
-?먮Ц 留곹겕:
+원문 링크:
 {item.link}
 
-?섏쭛??湲곗궗 ?뺣낫:
+수집된 기사 정보:
 {article_context}
 """
 
@@ -1868,7 +1886,7 @@ vrew_script:
         )
         data = extract_json_object(response.text)
     except Exception as exc:
-        LAST_GEMINI_ERROR = f"Gemini ?앹꽦 ?ㅽ뙣: {exc}"
+        LAST_GEMINI_ERROR = f"Gemini 생성 실패: {exc}"
         return None
 
     blog_post = str(data.get("blog_post", "")).strip()
@@ -2029,7 +2047,7 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
     app_password = get_secret("GMAIL_APP_PASSWORD")
     recipient = str(settings.get("recipient_email") or get_secret("RECIPIENT_EMAIL") or sender).strip()
     if not sender or not app_password or not recipient:
-        raise RuntimeError("Gmail 二쇱냼, ??鍮꾨?踰덊샇, 諛쏅뒗 ?대찓???ㅼ젙???꾩슂?⑸땲??")
+        raise RuntimeError("Gmail 주소, 앱 비밀번호, 받는 이메일 설정이 필요합니다.")
 
     send_email(build_email(sender, recipient, email_items, query, content_package), sender, app_password)
     return {
