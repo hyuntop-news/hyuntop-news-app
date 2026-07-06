@@ -269,7 +269,7 @@ def format_tistory_post(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
 
     if "\n\n" not in text and len(text) > 700:
-        sentences = re.split(r"(?<=[.!???|[?ㅼ슂二좉퉴?덈떎?듬땲??)\s+", text)
+        sentences = re.split(r"(?<=[.!?。！？])\s+", text)
         chunks: list[str] = []
         for index in range(0, len(sentences), 3):
             chunk = " ".join(sentence.strip() for sentence in sentences[index:index + 3] if sentence.strip())
@@ -1706,11 +1706,11 @@ def create_local_content_package_data(item: NewsItem, article_context: str, toda
 def create_derivative_content_from_blog(
     blog_post: str,
     title: str = "",
-    source: str = "吏곸젒 ?몄쭛",
+    source: str = "직접 편집",
     link: str = "",
 ) -> dict[str, str]:
-    title = title.strip() or extract_title_from_text(blog_post, "吏곸젒 ?묒꽦??釉붾줈洹?湲")
-    source = source.strip() or "吏곸젒 ?몄쭛"
+    title = title.strip() or extract_title_from_text(blog_post, "직접 작성한 블로그 글")
+    source = source.strip() or "직접 편집"
     link = link.strip()
     data: dict[str, str] | None = None
     api_key = get_secret("GEMINI_API_KEY")
