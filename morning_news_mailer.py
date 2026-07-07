@@ -1061,7 +1061,7 @@ def create_basic_pptx(slide_script: str, output_path: Path, title: str) -> str:
 
     slides_data = parse_slide_blocks(slide_script)
     if not slides_data:
-        slides_data = [{"title": "?좏뒠釉??щ씪?대뱶", "screen": title, "narration": slide_script[:600]}]
+        slides_data = [{"title": "유튜브 슬라이드", "screen": title, "narration": slide_script[:600]}]
 
     all_slides = slides_data[:6]
     slide_count = len(all_slides)
@@ -1159,7 +1159,7 @@ def create_youtube_pptx(slide_script: str, output_path: Path, title: str) -> str
         header.fill.fore_color.rgb = panel
         header.line.color.rgb = cyan
         header.line.width = Pt(1)
-        add_pptx_textbox(slide, slide_info.get("title", f"?щ씪?대뱶 {index}")[:60], Inches(0.85), Inches(0.61), Inches(10.5), Inches(0.35), size=17, bold=True, color=white)
+        add_pptx_textbox(slide, slide_info.get("title", f"슬라이드 {index}")[:60], Inches(0.85), Inches(0.61), Inches(10.5), Inches(0.35), size=17, bold=True, color=white)
 
         screen_text = slide_info.get("screen") or slide_info.get("title", "")
         add_pptx_textbox(slide, screen_text[:95], Inches(0.9), Inches(1.55), Inches(11.4), Inches(1.1), size=33, bold=True, color=white)
@@ -1998,7 +1998,7 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
     timeout = int(settings.get("request_timeout_seconds", os.getenv("REQUEST_TIMEOUT_SECONDS", "15")))
     blog_enabled = bool(settings.get("blog_enabled", False))
     pick_index = int(settings.get("blog_pick_index", 1))
-    low_cost_mode = as_bool(settings.get("low_cost_mode", os.getenv("LOW_COST_MODE", "true")), True)
+    low_cost_mode = as_bool(settings.get("low_cost_mode", os.getenv("LOW_COST_MODE", "false")), False)
     candidate_limit = int(settings.get("content_candidate_limit", os.getenv("CONTENT_CANDIDATE_LIMIT", "10")))
     fetch_limit = max(limit, candidate_limit) if blog_enabled and pick_index == 0 else limit
     items = fetch_news(query, fetch_limit, timeout)

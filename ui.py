@@ -40,7 +40,7 @@ DEFAULT_SETTINGS = {
     "blog_pick_index": 1,
     "blog_draft_dir": "blog_drafts",
     "content_candidate_limit": 10,
-    "low_cost_mode": True,
+    "low_cost_mode": False,
     "retry_count": 3,
     "retry_delay_seconds": 3,
     "request_timeout_seconds": 10,
@@ -1735,7 +1735,7 @@ elif menu == "설정":
             st.caption("자동 선택을 켜면 뉴스 목록 중 본문이나 요약이 가장 많은 기사를 콘텐츠 제작 기준으로 고릅니다.")
             low_cost_mode = st.toggle(
                 "Gemini 비용 절약 모드",
-                value=bool(settings.get("low_cost_mode", True)),
+                value=bool(settings.get("low_cost_mode", False)),
                 disabled=not blog_enabled,
             )
 
