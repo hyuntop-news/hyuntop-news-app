@@ -110,13 +110,58 @@ def run_powershell(args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-def read_recent_logs(limit: int = 8) -> list[str]:
-    if not LOG_PATH.exists():
-        return ["아직 실행 기록이 없습니다."]
+def append_activity(message: str) -> None:
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with LOG_PATH.open("a", encoding="utf-8") as file:
+        file.write(f"[{timestamp}] [INFO] {message}\n")
 
-    lines = LOG_PATH.read_text(encoding="utf-8", errors="replace").splitlines()
-    clean_lines = [line for line in lines if not looks_broken_text(line)]
-    return clean_lines[-limit:] or ["아직 실행 기록이 없습니다."]
+
+def read_recent_logs(limit: int = 8) -> list[str]:
+    log_paths = [
+        LOG_PATH,
+        BASE_DIR / "streamlit-local.log",
+        BASE_DIR / "streamlit-local.out.log",
+        BASE_DIR / "streamlit-local.err.log",
+    ]
+    entries: list[tuple[float, int, str]] = []
+    for path in log_paths:
+        if not path.exists():
+            continue
+        try:
+            modified = path.stat().st_mtime
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line_number, line in enumerate(lines):
+            clean = line.strip()
+            if clean and not looks_broken_text(clean):
+                entries.append((modified, line_number, clean))
+
+    entries.sort(key=lambda item: (item[0], item[1]))
+    return [line for _, _, line in entries[-limit:]] or ["아직 실행 기록이 없습니다."]
+
+
+def short_error_message(message: str) -> str:
+    text = " ".join(str(message or "").split())
+    return text[:180] + ("..." if len(text) > 180 else "")
+
+
+def summarize_run_for_log(result: dict) -> str:
+    sent = result.get("sent", 0)
+    recipient = result.get("recipient", "")
+    package = result.get("content_package")
+    content_message = result.get("content_message", "")
+    if sent and package:
+        return f"Run finished successfully. Sent {sent} news items to {recipient}; content package created."
+    if sent:
+        suffix = f"; {short_error_message(content_message)}" if content_message else ""
+        return f"Run finished with mail only. Sent {sent} news items to {recipient}{suffix}"
+    return f"Run finished without sending mail. {short_error_message(result.get('message', 'No news sent'))}"
+
+
+def summarize_exception_for_log(exc: Exception) -> str:
+    return f"Run failed. {short_error_message(str(exc))}"
 
 
 def looks_broken_text(text: str) -> bool:
@@ -1369,7 +1414,9 @@ def is_cloud() -> bool:
 
 def run_news_now(settings: dict) -> None:
     try:
+        append_activity("Run started from dashboard")
         result = run_mailer(settings=settings)
+        append_activity(summarize_run_for_log(result))
         if result.get("sent", 0):
             st.success(f"{result['recipient']} 주소로 뉴스 {result['sent']}개를 보냈습니다.")
             content_package = result.get("content_package")
@@ -1385,6 +1432,7 @@ def run_news_now(settings: dict) -> None:
         else:
             st.warning(result.get("message", "보낼 뉴스가 없습니다."))
     except Exception as exc:
+        append_activity(summarize_exception_for_log(exc))
         st.error(f"실행 중 오류가 발생했습니다: {exc}")
 
 

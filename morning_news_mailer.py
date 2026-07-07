@@ -1246,27 +1246,44 @@ Collected article/context:
 """
 
     client = genai.Client(api_key=api_key)
-    try:
-        config_kwargs = {
-            "temperature": 0.72,
-            "max_output_tokens": 4096,
-            "response_mime_type": "application/json",
-        }
-        if use_grounding:
-            config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(**config_kwargs),
-        )
-        data = extract_json_object(response.text)
-        blog_post = normalize_generated_text_field(data.get("blog_post"))
-    except Exception as exc:
-        LAST_GEMINI_ERROR = f"Gemini 블로그 글 생성 실패: {exc}"
-        return None
+    config_kwargs = {
+        "temperature": 0.72,
+        "max_output_tokens": 4096,
+        "response_mime_type": "application/json",
+    }
+    if use_grounding:
+        config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+
+    blog_post = ""
+    last_error = ""
+    for attempt in range(3):
+        retry_note = ""
+        if attempt:
+            retry_note = """
+
+Previous response was invalid or too short.
+Return a valid JSON object only. No markdown, no comments, no trailing comma.
+Escape all line breaks inside JSON strings as \\n.
+The only key must be blog_post.
+"""
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt + retry_note,
+                config=types.GenerateContentConfig(**config_kwargs),
+            )
+            data = extract_json_object(response.text)
+            blog_post = normalize_generated_text_field(data.get("blog_post"))
+        except Exception as exc:
+            last_error = str(exc)
+            LAST_GEMINI_ERROR = f"Gemini 블로그 글 응답 형식 오류로 재시도 중: {exc}"
+            continue
+        if len(blog_post) >= 800:
+            break
 
     if len(blog_post) < 800:
-        LAST_GEMINI_ERROR = f"Gemini blog post was too short: {len(blog_post)} chars"
+        detail = f": {last_error}" if last_error else f": {len(blog_post)} chars"
+        LAST_GEMINI_ERROR = f"Gemini blog post was too short or invalid{detail}"
         return None
     return blog_post[:4500]
 
@@ -1907,7 +1924,7 @@ vrew_script:
 
     last_quality_errors: list[str] = []
     accepted_data: dict[str, str] | None = None
-    for attempt in range(2):
+    for attempt in range(3):
         retry_note = ""
         if attempt:
             retry_note = f"""
@@ -1919,6 +1936,8 @@ vrew_script:
 - blog_post와 tistory_post는 도입부, 소제목, 문장 순서를 다르게 각색.
 - thread_post, slide_script, vrew_script에도 뉴스 제목의 구체 주제를 반드시 포함.
 - JSON 객체 하나만 반환.
+- 코드블록, 설명문, 주석, 마지막 쉼표 없이 유효한 JSON만 반환.
+- 문자열 안의 줄바꿈은 반드시 \\n으로 이스케이프.
 """
 
         try:
@@ -1929,8 +1948,9 @@ vrew_script:
             )
             data = extract_json_object(response.text)
         except Exception as exc:
-            LAST_GEMINI_ERROR = f"Gemini 생성 실패: {exc}"
-            return None
+            last_quality_errors = [f"Gemini JSON 형식 오류: {exc}"]
+            LAST_GEMINI_ERROR = f"Gemini 응답 형식 오류로 재시도 중: {exc}"
+            continue
 
         blog_post = normalize_generated_text_field(data.get("blog_post"))
         tistory_post = normalize_generated_text_field(data.get("tistory_post"))
