@@ -244,6 +244,32 @@ def extract_json_object(value: str) -> dict:
         return loads_lenient(match.group(0))
 
 
+def normalize_generated_text_field(value) -> str:
+    if isinstance(value, dict):
+        title = str(value.get("title") or value.get("headline") or "").strip()
+        content = str(
+            value.get("content")
+            or value.get("body")
+            or value.get("text")
+            or value.get("post")
+            or ""
+        ).strip()
+        if title and content and not content.lstrip().startswith("#"):
+            return f"# {title}\n\n{content}".strip()
+        return (content or title).strip()
+    if isinstance(value, list):
+        return "\n\n".join(normalize_generated_text_field(item) for item in value if item).strip()
+
+    text = str(value or "").strip()
+    if text.startswith("{") and ("'content'" in text or '"content"' in text or "'body'" in text or '"body"' in text):
+        try:
+            parsed = ast.literal_eval(text)
+            return normalize_generated_text_field(parsed)
+        except (ValueError, SyntaxError):
+            pass
+    return text.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "\t").strip()
+
+
 def format_tistory_post(text: str) -> str:
     text = (text or "").strip()
     if not text:
@@ -1234,7 +1260,7 @@ Collected article/context:
             config=types.GenerateContentConfig(**config_kwargs),
         )
         data = extract_json_object(response.text)
-        blog_post = str(data.get("blog_post", "")).strip()
+        blog_post = normalize_generated_text_field(data.get("blog_post"))
     except Exception as exc:
         LAST_GEMINI_ERROR = f"Gemini 블로그 글 생성 실패: {exc}"
         return None
@@ -1824,18 +1850,20 @@ def create_gemini_content(item: NewsItem, article_context: str, use_grounding: b
 - 문단은 짧게 나누고 계속 이어 쓰지 마세요.
 
 blog_post:
-- 2500~3500자 분량.
+- 3000~3800자 분량.
 - 티스토리/네이버 블로그처럼 실전적인 뉴스 해설 글로 쓰세요.
 - 제목은 후킹형으로 시작하세요.
 - 번호가 있는 소제목 4~5개를 사용하세요.
 - "왜 지금 봐야 하는가", "독자에게 어떤 영향이 있는가", "지금 확인할 것", "마무리"가 드러나야 합니다.
 - 기사 내용이 아닌 허구 사례는 넣지 마세요.
+- 각 소제목 아래에는 최소 2개 이상의 짧은 문단을 쓰세요.
 
 tistory_post:
 - blog_post를 복사하지 말고 티스토리 업로드용으로 각색하세요.
-- 2500~3500자 분량.
+- 2800~3600자 분량.
 - SEO형 제목, H2/H3 소제목, 짧은 문단, 목록, 마무리, 태그 5~8개 포함.
 - blog_post와 같은 문장 순서와 같은 표현을 반복하지 마세요.
+- 블로그 글과 다른 도입부, 다른 소제목, 다른 문장 흐름으로 재작성하세요.
 
 thread_post:
 - 280~330자 정도.
@@ -1868,51 +1896,84 @@ vrew_script:
 
     client = genai.Client(api_key=api_key)
 
-    try:
-        config_kwargs = {
-            "temperature": 0.78,
-            "max_output_tokens": 8192,
-        }
-        if use_grounding:
-            config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
-        else:
-            config_kwargs["response_mime_type"] = "application/json"
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(**config_kwargs),
+    config_kwargs = {
+        "temperature": 0.78,
+        "max_output_tokens": 8192,
+    }
+    if use_grounding:
+        config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+    else:
+        config_kwargs["response_mime_type"] = "application/json"
+
+    last_quality_errors: list[str] = []
+    accepted_data: dict[str, str] | None = None
+    for attempt in range(2):
+        retry_note = ""
+        if attempt:
+            retry_note = f"""
+
+이전 응답은 품질 기준을 통과하지 못했습니다: {', '.join(last_quality_errors)}
+이번에는 반드시 아래 기준을 지켜 다시 작성하세요.
+- blog_post는 3000자 이상, tistory_post는 2800자 이상.
+- 짧은 일반론으로 채우지 말고 뉴스 제목의 핵심 쟁점을 모든 소제목에 연결.
+- blog_post와 tistory_post는 도입부, 소제목, 문장 순서를 다르게 각색.
+- thread_post, slide_script, vrew_script에도 뉴스 제목의 구체 주제를 반드시 포함.
+- JSON 객체 하나만 반환.
+"""
+
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt + retry_note,
+                config=types.GenerateContentConfig(**config_kwargs),
+            )
+            data = extract_json_object(response.text)
+        except Exception as exc:
+            LAST_GEMINI_ERROR = f"Gemini 생성 실패: {exc}"
+            return None
+
+        blog_post = normalize_generated_text_field(data.get("blog_post"))
+        tistory_post = normalize_generated_text_field(data.get("tistory_post"))
+        thread_post = normalize_generated_text_field(data.get("thread_post"))
+        slide_script = normalize_generated_text_field(data.get("slide_script"))
+        vrew_script = normalize_generated_text_field(data.get("vrew_script"))
+
+        if not all([blog_post, tistory_post, thread_post, slide_script, vrew_script]):
+            last_quality_errors = ["Gemini 응답에서 필요한 콘텐츠 일부가 비어 있음"]
+            continue
+
+        quality_errors = validate_generated_content(
+            {
+                "blog_post": blog_post,
+                "tistory_post": tistory_post,
+                "thread_post": thread_post,
+                "slide_script": slide_script,
+                "vrew_script": vrew_script,
+            },
+            item,
         )
-        data = extract_json_object(response.text)
-    except Exception as exc:
-        LAST_GEMINI_ERROR = f"Gemini 생성 실패: {exc}"
-        return None
+        if quality_errors:
+            last_quality_errors = quality_errors
+            continue
 
-    blog_post = str(data.get("blog_post", "")).strip()
-    tistory_post = str(data.get("tistory_post", "")).strip()
-    thread_post = str(data.get("thread_post", "")).strip()
-    slide_script = str(data.get("slide_script", "")).strip()
-    vrew_script = str(data.get("vrew_script", "")).strip()
-
-    if len(blog_post) < 1000:
-        LAST_GEMINI_ERROR = f"Gemini blog post was too short: {len(blog_post)} chars"
-        return None
-    if not all([blog_post, tistory_post, thread_post, slide_script, vrew_script]):
-        LAST_GEMINI_ERROR = "Gemini response missed one or more required content fields."
-        return None
-
-    quality_errors = validate_generated_content(
-        {
+        accepted_data = {
             "blog_post": blog_post,
             "tistory_post": tistory_post,
             "thread_post": thread_post,
             "slide_script": slide_script,
             "vrew_script": vrew_script,
-        },
-        item,
-    )
-    if quality_errors:
-        LAST_GEMINI_ERROR = "Gemini 결과물이 품질 기준을 통과하지 못했습니다: " + ", ".join(quality_errors)
+        }
+        break
+
+    if not accepted_data:
+        LAST_GEMINI_ERROR = "Gemini 결과물이 품질 기준을 통과하지 못했습니다: " + ", ".join(last_quality_errors)
         return None
+
+    blog_post = accepted_data["blog_post"]
+    tistory_post = accepted_data["tistory_post"]
+    thread_post = accepted_data["thread_post"]
+    slide_script = accepted_data["slide_script"]
+    vrew_script = accepted_data["vrew_script"]
 
     slide_blocks = ensure_six_slide_blocks(slide_script, item, article_context)
     return {
@@ -1997,9 +2058,9 @@ def validate_generated_content(data: dict, item: NewsItem) -> list[str]:
     vrew_script = str(data.get("vrew_script", "")).strip()
     errors: list[str] = []
 
-    if len(blog_post) < 2200:
+    if len(blog_post) < 2800:
         errors.append(f"블로그 글이 너무 짧음({len(blog_post)}자)")
-    if len(tistory_post) < 1800:
+    if len(tistory_post) < 2400:
         errors.append(f"티스토리 글이 너무 짧음({len(tistory_post)}자)")
     if _content_similarity(blog_post, tistory_post) > 0.78:
         errors.append("블로그 글과 티스토리 글이 너무 비슷함")

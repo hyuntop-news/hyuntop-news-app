@@ -15,7 +15,13 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
-from morning_news_mailer import create_derivative_content_from_blog, create_youtube_pptx, load_env_file, run_mailer
+from morning_news_mailer import (
+    create_derivative_content_from_blog,
+    create_youtube_pptx,
+    load_env_file,
+    normalize_generated_text_field,
+    run_mailer,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -168,7 +174,7 @@ def content_package_mtime(path: Path) -> float:
 def read_text_if_exists(path: Path) -> str:
     if not path.exists():
         return "아직 저장된 내용이 없습니다."
-    return path.read_text(encoding="utf-8", errors="replace")
+    return normalize_generated_text_field(path.read_text(encoding="utf-8", errors="replace"))
 
 
 def extract_markdown_title(text: str, fallback: str) -> str:
