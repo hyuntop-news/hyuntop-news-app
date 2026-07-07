@@ -672,6 +672,26 @@ def create_slide_images(slide_text: str, output_dir: Path, asset_dir: Path | Non
     body_font = load_font(27)
     small_font = load_font(20)
 
+    def fit_font(
+        text: str,
+        start_size: int,
+        min_size: int,
+        max_width: int,
+        max_lines: int,
+        bold: bool = True,
+        max_height: int | None = None,
+        line_gap: int = 6,
+    ):
+        for size in range(start_size, min_size - 1, -2):
+            font = load_font(size, bold=bold)
+            lines = wrap_text_by_width(draw, text, font, max_width)
+            line_height = size + line_gap
+            height_ok = max_height is None or len(lines[:max_lines]) * line_height <= max_height
+            if len(lines) <= max_lines and height_ok:
+                return font, lines
+        font = load_font(min_size, bold=bold)
+        return font, wrap_text_by_width(draw, text, font, max_width)[:max_lines]
+
     image_paths: list[Path] = []
     for index, slide in enumerate(slides, 1):
         canvas = Image.new("RGB", (1280, 720), "#050A18")
@@ -683,14 +703,17 @@ def create_slide_images(slide_text: str, output_dir: Path, asset_dir: Path | Non
         if index == 1 and not header_title.startswith("슬라이드 1"):
             header_title = f"슬라이드 1. {header_title}"
 
-        draw.rounded_rectangle((44, 34, 1236, 124), radius=18, fill="#111827", outline="#22D3EE", width=2)
-        title_lines = wrap_text_by_width(draw, header_title, title_font, 1110)
-        y = 52
-        for line in title_lines[:2]:
-            draw.text((74, y), line, font=title_font, fill="#F8FAFC")
-            y += 40
+        title_box = (44, 34, 1236, 142)
+        draw.rounded_rectangle(title_box, radius=18, fill="#111827", outline="#22D3EE", width=2)
+        fitted_title_font, title_lines = fit_font(header_title, 34, 20, 1110, 2, max_height=70, line_gap=4)
+        title_line_height = fitted_title_font.size + 4 if hasattr(fitted_title_font, "size") else 30
+        title_total_height = len(title_lines) * title_line_height
+        y = title_box[1] + max(14, ((title_box[3] - title_box[1]) - title_total_height) // 2)
+        for line in title_lines:
+            draw.text((74, y), line, font=fitted_title_font, fill="#F8FAFC")
+            y += title_line_height
 
-        image_box = (54, 150, 568, 592)
+        image_box = (54, 164, 568, 592)
         image_asset = get_slide_asset(asset_dir, index, IMAGE_ASSET_EXTS) if asset_dir else None
         if image_asset:
             photo = Image.open(image_asset).convert("RGB")
@@ -702,23 +725,15 @@ def create_slide_images(slide_text: str, output_dir: Path, asset_dir: Path | Non
             draw.text((92, 326), "HYUNTOP NEWS", font=title_font, fill="#64748B")
             draw.text((92, 382), "이미지 영역", font=small_font, fill="#94A3B8")
 
-        content_box = (610, 150, 1226, 430)
+        content_box = (610, 164, 1226, 592)
         draw.rounded_rectangle(content_box, radius=22, fill="#111827", outline="#334155", width=2)
-        screen_lines = wrap_text_by_width(draw, screen, headline_font, 540)
-        y = 184
-        for line in screen_lines[:5]:
-            draw.text((646, y), line, font=headline_font, fill="#F8FAFC")
-            y += 58
-
-        narration_box = (610, 460, 1226, 642)
-        draw.rounded_rectangle(narration_box, radius=22, fill="#0F172A", outline="#334155", width=2)
-        draw.text((646, 482), "내레이션", font=small_font, fill="#22D3EE")
-        narration = clean_video_narration(slide.get("narration", "").strip())
-        narration_lines = wrap_text_by_width(draw, narration, body_font, 540)
-        y = 518
-        for line in narration_lines[:4]:
-            draw.text((646, y), line, font=body_font, fill="#CBD5E1")
-            y += 36
+        fitted_headline_font, screen_lines = fit_font(screen, 44, 28, 540, 7)
+        headline_line_height = fitted_headline_font.size + 12 if hasattr(fitted_headline_font, "size") else 44
+        total_height = len(screen_lines) * headline_line_height
+        y = max(180, 150 + ((592 - 150) - total_height) // 2)
+        for line in screen_lines:
+            draw.text((646, y), line, font=fitted_headline_font, fill="#F8FAFC")
+            y += headline_line_height
 
         draw.text((54, 676), "HYUNTOP NEWS", font=small_font, fill="#64748B")
         output_path = output_dir / f"slide_{index:02}.png"

@@ -1,5 +1,6 @@
 ﻿import argparse
 import ast
+from difflib import SequenceMatcher
 import html
 import json
 import os
@@ -1129,7 +1130,7 @@ def create_youtube_pptx(slide_script: str, output_path: Path, title: str) -> str
 
     slides_data = parse_slide_blocks(slide_script)
     if not slides_data:
-        slides_data = [{"title": "?좏뒠釉??щ씪?대뱶", "screen": title, "narration": slide_script[:600]}]
+        slides_data = [{"title": "유튜브 슬라이드", "screen": title, "narration": slide_script[:600]}]
 
     prs = Presentation()
     prs.slide_width = Inches(13.333)
@@ -1154,22 +1155,22 @@ def create_youtube_pptx(slide_script: str, output_path: Path, title: str) -> str
         slide = prs.slides.add_slide(blank_layout)
         set_background(slide)
 
-        header = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(0.5), Inches(12.1), Inches(0.55))
+        header = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(0.45), Inches(12.1), Inches(0.75))
         header.fill.solid()
         header.fill.fore_color.rgb = panel
         header.line.color.rgb = cyan
         header.line.width = Pt(1)
-        add_pptx_textbox(slide, slide_info.get("title", f"슬라이드 {index}")[:60], Inches(0.85), Inches(0.61), Inches(10.5), Inches(0.35), size=17, bold=True, color=white)
+        slide_title = slide_info.get("title", f"슬라이드 {index}")
+        title_size = 16 if len(slide_title) <= 38 else 13 if len(slide_title) <= 70 else 11
+        add_pptx_textbox(slide, slide_title[:100], Inches(0.85), Inches(0.54), Inches(11.0), Inches(0.58), size=title_size, bold=True, color=white)
 
         screen_text = slide_info.get("screen") or slide_info.get("title", "")
-        add_pptx_textbox(slide, screen_text[:95], Inches(0.9), Inches(1.55), Inches(11.4), Inches(1.1), size=33, bold=True, color=white)
-
-        narration_box = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.9), Inches(3.25), Inches(11.4), Inches(2.45))
-        narration_box.fill.solid()
-        narration_box.fill.fore_color.rgb = panel
-        narration_box.line.color.rgb = RGBColor(51, 65, 85)
-        add_pptx_textbox(slide, "내레이션", Inches(1.2), Inches(3.47), Inches(2), Inches(0.28), size=12, bold=True, color=cyan)
-        add_pptx_textbox(slide, slide_info.get("narration", "")[:520], Inches(1.2), Inches(3.9), Inches(10.3), Inches(1.45), size=18, color=white)
+        content_box = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.9), Inches(1.55), Inches(11.4), Inches(4.7))
+        content_box.fill.solid()
+        content_box.fill.fore_color.rgb = panel
+        content_box.line.color.rgb = RGBColor(51, 65, 85)
+        screen_size = 36 if len(screen_text) <= 44 else 30 if len(screen_text) <= 80 else 24
+        add_pptx_textbox(slide, screen_text[:180], Inches(1.2), Inches(2.15), Inches(10.7), Inches(3.2), size=screen_size, bold=True, color=white)
         add_footer(slide, index)
 
     prs.save(output_path)
@@ -1276,9 +1277,9 @@ def create_content_package(item: NewsItem, draft_dir_name: str, low_cost_mode: b
     else:
         gemini_content = create_gemini_content(item, article_context, use_grounding=not has_article_text)
         if not gemini_content:
-            gemini_content = create_local_content_package_data(item, article_context, today)
             if not LAST_GEMINI_ERROR:
-                LAST_GEMINI_ERROR = "Gemini가 응답하지 않아 로컬 예비 글쓰기 엔진을 사용했습니다."
+                LAST_GEMINI_ERROR = "Gemini가 품질 기준을 통과한 콘텐츠를 만들지 못했습니다."
+            return None
 
     blog_post = gemini_content["blog_post"]
     tistory_post = gemini_content["tistory_post"]
@@ -1287,12 +1288,8 @@ def create_content_package(item: NewsItem, draft_dir_name: str, low_cost_mode: b
     vrew_script = gemini_content["vrew_script"]
 
     if len(blog_post) < 1000:
-        gemini_content = create_local_content_package_data(item, article_context, today)
-        blog_post = gemini_content["blog_post"]
-        tistory_post = gemini_content["tistory_post"]
-        thread_post = gemini_content["thread_post"]
-        slide_script = gemini_content["slide_script"]
-        vrew_script = gemini_content["vrew_script"]
+        LAST_GEMINI_ERROR = f"콘텐츠가 너무 짧아 저장하지 않았습니다: {len(blog_post)}자"
+        return None
 
     slide_blocks = ensure_six_slide_blocks(slide_script, item, article_context)
     slide_script = format_slide_script(slide_blocks, item.source, item.link)
@@ -1875,10 +1872,11 @@ vrew_script:
         config_kwargs = {
             "temperature": 0.78,
             "max_output_tokens": 8192,
-            "response_mime_type": "application/json",
         }
         if use_grounding:
             config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+        else:
+            config_kwargs["response_mime_type"] = "application/json"
         response = client.models.generate_content(
             model=model,
             contents=prompt,
@@ -1900,6 +1898,20 @@ vrew_script:
         return None
     if not all([blog_post, tistory_post, thread_post, slide_script, vrew_script]):
         LAST_GEMINI_ERROR = "Gemini response missed one or more required content fields."
+        return None
+
+    quality_errors = validate_generated_content(
+        {
+            "blog_post": blog_post,
+            "tistory_post": tistory_post,
+            "thread_post": thread_post,
+            "slide_script": slide_script,
+            "vrew_script": vrew_script,
+        },
+        item,
+    )
+    if quality_errors:
+        LAST_GEMINI_ERROR = "Gemini 결과물이 품질 기준을 통과하지 못했습니다: " + ", ".join(quality_errors)
         return None
 
     slide_blocks = ensure_six_slide_blocks(slide_script, item, article_context)
@@ -1925,6 +1937,88 @@ def clean_narration_text(text: str) -> str:
     for old, new in replacements.items():
         cleaned = cleaned.replace(old, new)
     return cleaned
+
+
+def _plain_text(text: str) -> str:
+    cleaned = re.sub(r"[#*_`>\-\[\]():/.,…\"'“”‘’]", " ", text or "")
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _title_tokens(title: str) -> list[str]:
+    cleaned = re.sub(r"-\s*[^-]+$", "", _clean_news_title(title))
+    tokens = re.findall(r"[가-힣A-Za-z0-9]{2,}", cleaned)
+    stopwords = {
+        "뉴스",
+        "단독",
+        "속보",
+        "머니투데이",
+        "연합뉴스",
+        "조선일보",
+        "조선비즈",
+        "한국경제",
+        "매일경제",
+        "서울경제",
+    }
+    return [token for token in tokens if token not in stopwords][:10]
+
+
+def _has_news_signal(text: str, title: str) -> bool:
+    plain = _plain_text(text)
+    tokens = _title_tokens(title)
+    required = max(1, min(3, len(tokens)))
+    return sum(1 for token in tokens if token in plain) >= required
+
+
+def _content_similarity(left: str, right: str) -> float:
+    return SequenceMatcher(None, _plain_text(left)[:4000], _plain_text(right)[:4000]).ratio()
+
+
+def _generic_phrase_count(text: str) -> int:
+    phrases = [
+        "제목만 보고",
+        "단순한 사건",
+        "흐름을 읽는",
+        "생활비, 세금",
+        "자산 판단",
+        "후속 보도",
+        "차분한 확인",
+        "빠른 결론보다",
+        "하나의 신호",
+    ]
+    return sum(1 for phrase in phrases if phrase in (text or ""))
+
+
+def validate_generated_content(data: dict, item: NewsItem) -> list[str]:
+    title = item.title
+    blog_post = str(data.get("blog_post", "")).strip()
+    tistory_post = str(data.get("tistory_post", "")).strip()
+    thread_post = str(data.get("thread_post", "")).strip()
+    slide_script = str(data.get("slide_script", "")).strip()
+    vrew_script = str(data.get("vrew_script", "")).strip()
+    errors: list[str] = []
+
+    if len(blog_post) < 2200:
+        errors.append(f"블로그 글이 너무 짧음({len(blog_post)}자)")
+    if len(tistory_post) < 1800:
+        errors.append(f"티스토리 글이 너무 짧음({len(tistory_post)}자)")
+    if _content_similarity(blog_post, tistory_post) > 0.78:
+        errors.append("블로그 글과 티스토리 글이 너무 비슷함")
+    if not _has_news_signal(blog_post, title):
+        errors.append("블로그 글에 뉴스 고유 내용이 부족함")
+    if not _has_news_signal(tistory_post, title):
+        errors.append("티스토리 글에 뉴스 고유 내용이 부족함")
+    if not _has_news_signal(thread_post, title):
+        errors.append("쓰레드 글에 뉴스 고유 내용이 부족함")
+    if not _has_news_signal(slide_script, title):
+        errors.append("유튜브 대본에 뉴스 고유 내용이 부족함")
+    if not _has_news_signal(vrew_script, title):
+        errors.append("Vrew 대본에 뉴스 고유 내용이 부족함")
+    if _generic_phrase_count(blog_post) >= 4 or _generic_phrase_count(tistory_post) >= 4:
+        errors.append("일반론 문장이 너무 많음")
+    if "??" in blog_post + tistory_post + thread_post + slide_script + vrew_script:
+        errors.append("깨진 글자가 포함됨")
+
+    return errors
 
 
 def ensure_six_slide_blocks(slide_script: str, item: NewsItem, article_context: str) -> list[dict[str, str]]:
