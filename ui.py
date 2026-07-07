@@ -19,7 +19,6 @@ from morning_news_mailer import (
     create_derivative_content_from_blog,
     create_youtube_pptx,
     load_env_file,
-    normalize_generated_text_field,
     run_mailer,
 )
 
@@ -35,6 +34,36 @@ NEWS_SCRIPT = BASE_DIR / "Send-MorningNews.ps1"
 SCHEDULE_SCRIPT = BASE_DIR / "schedule_daily.ps1"
 LOG_PATH = BASE_DIR / "logs" / "morning-news.log"
 load_env_file()
+
+
+def normalize_saved_text(value) -> str:
+    if isinstance(value, dict):
+        title = str(value.get("title") or value.get("headline") or "").strip()
+        content = str(
+            value.get("content")
+            or value.get("body")
+            or value.get("text")
+            or value.get("post")
+            or ""
+        ).strip()
+        if title and content and not content.lstrip().startswith("#"):
+            return f"# {title}\n\n{content}".strip()
+        return (content or title).strip()
+    if isinstance(value, list):
+        return "\n\n".join(normalize_saved_text(item) for item in value if item).strip()
+
+    text = str(value or "").strip()
+    if text.startswith("{") and ("'content'" in text or '"content"' in text or "'body'" in text or '"body"' in text):
+        try:
+            return normalize_saved_text(json.loads(text))
+        except json.JSONDecodeError:
+            try:
+                import ast
+
+                return normalize_saved_text(ast.literal_eval(text))
+            except (ValueError, SyntaxError):
+                pass
+    return text.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "\t").strip()
 
 DEFAULT_SETTINGS = {
     "news_query": "과학",
@@ -174,7 +203,7 @@ def content_package_mtime(path: Path) -> float:
 def read_text_if_exists(path: Path) -> str:
     if not path.exists():
         return "아직 저장된 내용이 없습니다."
-    return normalize_generated_text_field(path.read_text(encoding="utf-8", errors="replace"))
+    return normalize_saved_text(path.read_text(encoding="utf-8", errors="replace"))
 
 
 def extract_markdown_title(text: str, fallback: str) -> str:
