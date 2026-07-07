@@ -653,6 +653,31 @@ def download_pexels_image(query: str, output_path: Path, api_key: str, page: int
         output_path.write_bytes(response.read())
 
 
+def pexels_query_candidates(slide: dict[str, str], title: str, index: int) -> list[str]:
+    raw = " ".join([slide.get("title", ""), slide.get("screen", ""), title]).strip()
+    first_query = guess_image_query({"title": raw, "screen": slide.get("screen", "")}, title)
+    candidates = [first_query]
+
+    lowered = raw.lower()
+    if any(word in lowered for word in ("부동산", "주택", "아파트", "임대", "세제", "세금", "매매")):
+        candidates += ["real estate korea", "apartment building", "housing market", "home finance"]
+    elif any(word in lowered for word in ("경제", "금리", "환율", "주식", "투자", "시장")):
+        candidates += ["financial market", "business news", "stock market", "economy"]
+    elif any(word in lowered for word in ("ai", "인공지능", "기술", "반도체", "데이터")):
+        candidates += ["artificial intelligence", "technology", "data center", "semiconductor"]
+    else:
+        candidates += ["news", "business meeting", "city skyline", "newspaper"]
+
+    candidates.append("korea city")
+
+    unique: list[str] = []
+    for query in candidates:
+        query = re.sub(r"\s+", " ", query).strip()
+        if query and query not in unique:
+            unique.append(query)
+    return unique
+
+
 def auto_fill_slide_images(package_dir: Path) -> list[str]:
     api_key = get_config_value("PEXELS_API_KEY")
     if not api_key:
@@ -672,11 +697,19 @@ def auto_fill_slide_images(package_dir: Path) -> list[str]:
         if get_slide_asset(asset_dir, index, VIDEO_ASSET_EXTS):
             results.append(f"슬라이드 {index}: 기존 영상 파일 유지")
             continue
-        query_seed = " ".join([slide.get("title", ""), slide.get("screen", ""), title]).strip()
-        query = guess_image_query({"title": query_seed, "screen": slide.get("screen", "")}, title)
         output_path = asset_dir / f"slide_{index:02}.jpg"
-        download_pexels_image(query, output_path, api_key, page=index)
-        results.append(f"슬라이드 {index}: 서로 다른 자동 이미지 추가")
+        used_query = ""
+        for query in pexels_query_candidates(slide, title, index):
+            try:
+                download_pexels_image(query, output_path, api_key, page=index)
+                used_query = query
+                break
+            except Exception:
+                continue
+        if used_query:
+            results.append(f"슬라이드 {index}: 자동 이미지 추가({used_query})")
+        else:
+            results.append(f"슬라이드 {index}: 이미지 검색 결과 없음, 기본 배경 사용")
     return results
 
 
