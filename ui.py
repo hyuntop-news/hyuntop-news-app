@@ -966,6 +966,10 @@ def write_wave_file(output_path: Path, pcm: bytes, channels: int = 1, rate: int 
 
 
 def create_google_tts_audio(text: str, output_path: Path) -> bool:
+    enabled = os.getenv("GEMINI_TTS_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return False
+
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         return False
@@ -1102,13 +1106,14 @@ def create_mp4_video(package_dir: Path, progress_callback=None) -> Path:
         if progress_callback:
             progress_callback(step, total, message)
 
-    report(1, 6, "영상 재료를 확인하는 중입니다.")
+    report(1, 10, "영상 재료를 확인하는 중입니다.")
     slide_text = read_text_if_exists(package_dir / "04-youtube-slides.md")
     slides = parse_slide_blocks_for_assets(slide_text)
     if not slides:
         raise RuntimeError("유튜브 슬라이드 대본을 찾지 못했습니다. 먼저 콘텐츠 패키지를 생성해 주세요.")
 
-    report(2, 6, "영상 제작 패키지를 준비하는 중입니다.")
+    total_steps = max((len(slides) * 3) + 4, 10)
+    report(2, total_steps, "영상 제작 패키지를 준비하는 중입니다.")
     vrew_text = read_text_if_exists(package_dir / "05-vrew-script.txt")
     vrew_slides = parse_slide_blocks_for_assets(vrew_text)
 
@@ -1127,10 +1132,11 @@ def create_mp4_video(package_dir: Path, progress_callback=None) -> Path:
 
     ffmpeg = get_ffmpeg_path()
     clip_paths: list[Path] = []
-    total_steps = max(len(slides) + 4, 6)
+    current_step = 3
 
     for index, slide in enumerate(slides, 1):
-        report(index + 2, total_steps, f"{index}번 슬라이드 음성과 영상 조각을 만드는 중입니다.")
+        report(current_step, total_steps, f"{index}번 슬라이드 음성을 만드는 중입니다.")
+        current_step += 1
         image_path = slide_image_dir / f"slide_{index:02}.png"
         video_asset = get_slide_asset(asset_dir, index, VIDEO_ASSET_EXTS) if asset_dir.exists() else None
         audio_path = audio_dir / f"slide_{index:02}.wav"
@@ -1146,7 +1152,10 @@ def create_mp4_video(package_dir: Path, progress_callback=None) -> Path:
         )
         asyncio.run(create_tts_audio(narration, audio_path))
 
+        report(current_step, total_steps, f"{index}번 슬라이드 화면 재료를 확인하는 중입니다.")
+        current_step += 1
         if video_asset:
+            report(current_step, total_steps, f"{index}번 슬라이드 배경 영상과 음성을 합치는 중입니다.")
             run_command(
                 [
                     ffmpeg,
@@ -1172,6 +1181,7 @@ def create_mp4_video(package_dir: Path, progress_callback=None) -> Path:
                 ]
             )
         else:
+            report(current_step, total_steps, f"{index}번 슬라이드 이미지와 음성을 합치는 중입니다.")
             run_command(
                 [
                     ffmpeg,
@@ -1197,6 +1207,7 @@ def create_mp4_video(package_dir: Path, progress_callback=None) -> Path:
                 ]
             )
         clip_paths.append(clip_path)
+        current_step += 1
 
     report(total_steps - 1, total_steps, "영상 조각을 하나의 MP4로 합치는 중입니다.")
     concat_path = video_dir / "concat-list.txt"
@@ -1323,7 +1334,10 @@ def show_content_viewer(settings: dict) -> None:
                 st.session_state.pop("video_package_zip", None)
                 st.session_state.pop("mp4_video_path", None)
                 st.success("슬라이드 이미지를 자동으로 채웠습니다.")
-                st.write("\n".join(results))
+                st.caption(f"총 {len(results)}개 슬라이드 이미지를 준비했습니다.")
+                with st.expander("자동 이미지 검색 결과 보기"):
+                    for result in results:
+                        st.write(result)
             except Exception as exc:
                 st.error(f"자동 이미지 채우기 중 오류가 발생했습니다: {exc}")
 

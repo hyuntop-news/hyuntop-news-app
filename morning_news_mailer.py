@@ -99,6 +99,22 @@ def get_secret(name: str) -> str:
         return ""
 
 
+def gemini_model_candidates(primary_model: str) -> list[str]:
+    candidates = [
+        primary_model,
+        get_secret("GEMINI_MODEL_FALLBACK"),
+        get_secret("GEMINI_MODEL_LOW_COST"),
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+    ]
+    unique: list[str] = []
+    for candidate in candidates:
+        model = (candidate or "").strip()
+        if model and model not in unique:
+            unique.append(model)
+    return unique
+
+
 class ArticleTextParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -1256,28 +1272,32 @@ Collected article/context:
 
     blog_post = ""
     last_error = ""
-    for attempt in range(3):
-        retry_note = ""
-        if attempt:
-            retry_note = """
+    for model_name in gemini_model_candidates(model):
+        for attempt in range(2):
+            retry_note = ""
+            if attempt:
+                retry_note = """
 
 Previous response was invalid or too short.
 Return a valid JSON object only. No markdown, no comments, no trailing comma.
 Escape all line breaks inside JSON strings as \\n.
 The only key must be blog_post.
 """
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt + retry_note,
-                config=types.GenerateContentConfig(**config_kwargs),
-            )
-            data = extract_json_object(response.text)
-            blog_post = normalize_generated_text_field(data.get("blog_post"))
-        except Exception as exc:
-            last_error = str(exc)
-            LAST_GEMINI_ERROR = f"Gemini 블로그 글 응답 형식 오류로 재시도 중: {exc}"
-            continue
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt + retry_note,
+                    config=types.GenerateContentConfig(**config_kwargs),
+                )
+                data = extract_json_object(response.text)
+                blog_post = normalize_generated_text_field(data.get("blog_post"))
+            except Exception as exc:
+                last_error = f"{model_name}: {exc}"
+                LAST_GEMINI_ERROR = f"{model_name} 블로그 글 응답 오류로 다른 모델/재시도 진행 중: {exc}"
+                continue
+            if len(blog_post) >= 800:
+                break
+            last_error = f"{model_name}: too short ({len(blog_post)} chars)"
         if len(blog_post) >= 800:
             break
 
@@ -1924,10 +1944,11 @@ vrew_script:
 
     last_quality_errors: list[str] = []
     accepted_data: dict[str, str] | None = None
-    for attempt in range(3):
-        retry_note = ""
-        if attempt:
-            retry_note = f"""
+    for model_name in gemini_model_candidates(model):
+        for attempt in range(2):
+            retry_note = ""
+            if attempt:
+                retry_note = f"""
 
 이전 응답은 품질 기준을 통과하지 못했습니다: {', '.join(last_quality_errors)}
 이번에는 반드시 아래 기준을 지켜 다시 작성하세요.
@@ -1940,50 +1961,52 @@ vrew_script:
 - 문자열 안의 줄바꿈은 반드시 \\n으로 이스케이프.
 """
 
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt + retry_note,
-                config=types.GenerateContentConfig(**config_kwargs),
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt + retry_note,
+                    config=types.GenerateContentConfig(**config_kwargs),
+                )
+                data = extract_json_object(response.text)
+            except Exception as exc:
+                last_quality_errors = [f"{model_name} 응답 오류: {exc}"]
+                LAST_GEMINI_ERROR = f"{model_name} 응답 오류로 다른 모델/재시도 진행 중: {exc}"
+                continue
+
+            blog_post = normalize_generated_text_field(data.get("blog_post"))
+            tistory_post = normalize_generated_text_field(data.get("tistory_post"))
+            thread_post = normalize_generated_text_field(data.get("thread_post"))
+            slide_script = normalize_generated_text_field(data.get("slide_script"))
+            vrew_script = normalize_generated_text_field(data.get("vrew_script"))
+
+            if not all([blog_post, tistory_post, thread_post, slide_script, vrew_script]):
+                last_quality_errors = [f"{model_name} 응답에서 필요한 콘텐츠 일부가 비어 있음"]
+                continue
+
+            quality_errors = validate_generated_content(
+                {
+                    "blog_post": blog_post,
+                    "tistory_post": tistory_post,
+                    "thread_post": thread_post,
+                    "slide_script": slide_script,
+                    "vrew_script": vrew_script,
+                },
+                item,
             )
-            data = extract_json_object(response.text)
-        except Exception as exc:
-            last_quality_errors = [f"Gemini JSON 형식 오류: {exc}"]
-            LAST_GEMINI_ERROR = f"Gemini 응답 형식 오류로 재시도 중: {exc}"
-            continue
+            if quality_errors:
+                last_quality_errors = [f"{model_name}: {error}" for error in quality_errors]
+                continue
 
-        blog_post = normalize_generated_text_field(data.get("blog_post"))
-        tistory_post = normalize_generated_text_field(data.get("tistory_post"))
-        thread_post = normalize_generated_text_field(data.get("thread_post"))
-        slide_script = normalize_generated_text_field(data.get("slide_script"))
-        vrew_script = normalize_generated_text_field(data.get("vrew_script"))
-
-        if not all([blog_post, tistory_post, thread_post, slide_script, vrew_script]):
-            last_quality_errors = ["Gemini 응답에서 필요한 콘텐츠 일부가 비어 있음"]
-            continue
-
-        quality_errors = validate_generated_content(
-            {
+            accepted_data = {
                 "blog_post": blog_post,
                 "tistory_post": tistory_post,
                 "thread_post": thread_post,
                 "slide_script": slide_script,
                 "vrew_script": vrew_script,
-            },
-            item,
-        )
-        if quality_errors:
-            last_quality_errors = quality_errors
-            continue
-
-        accepted_data = {
-            "blog_post": blog_post,
-            "tistory_post": tistory_post,
-            "thread_post": thread_post,
-            "slide_script": slide_script,
-            "vrew_script": vrew_script,
-        }
-        break
+            }
+            break
+        if accepted_data:
+            break
 
     if not accepted_data:
         LAST_GEMINI_ERROR = "Gemini 결과물이 품질 기준을 통과하지 못했습니다: " + ", ".join(last_quality_errors)
@@ -2212,6 +2235,18 @@ def run_mailer(settings: dict | None = None, dry_run: bool = False) -> dict:
             "ok": True,
             "sent": 0,
             "items": [item.__dict__ for item in email_items],
+            "content_package": content_package.__dict__ if content_package else None,
+            "selected_index": selected_index,
+            "auto_selected": auto_selected,
+            "content_message": content_message,
+        }
+
+    notification_channel = str(settings.get("notification_channel", "email")).strip().lower()
+    if notification_channel in {"none", "off", "disabled"}:
+        return {
+            "ok": True,
+            "sent": 0,
+            "message": "뉴스 메일 발송이 중단 설정이라 메일을 보내지 않았습니다.",
             "content_package": content_package.__dict__ if content_package else None,
             "selected_index": selected_index,
             "auto_selected": auto_selected,
